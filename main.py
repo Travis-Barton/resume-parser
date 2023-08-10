@@ -39,7 +39,7 @@ if resume_inputer:
     for section in sections:
         result = llm_util.extract_section(resume=resume, section=section)
         section_results[section] = result
-        st.write(f"# {section.capitalize()}\n {result}")  # Display extracted content
+        st.write(f"# {section.capitalize().replace('_', ' ')}\n {result}")  # Display extracted content
 
     # Create a DOCX from the extracted sections
     doc = Document()
