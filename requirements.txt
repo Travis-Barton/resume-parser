@@ -6,3 +6,4 @@ python-dotenv~=1.0.0
 streamlit~=1.25.0
 python-docx
 faiss-cpu
+tiktoken
