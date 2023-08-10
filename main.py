@@ -65,9 +65,9 @@ else:
     st.markdown('__Please enter your OpenAI API key in the sidebar__')
 
 with st.sidebar:
-    st.markdown("Something broken? <br>[File an issue](https://github.com/Travis-Barton/resume-parser/issues) or "
+    st.markdown('---')
+    st.markdown("<br><br><br><br>Something broken? <br>[File an issue](https://github.com/Travis-Barton/resume-parser/issues) or "
                 "reach out to me <a href='mailto:me@travisbarton.com?subject=Resume Parser'>by email</a>",
                 unsafe_allow_html=True)
-    st.markdown('---')
-    st.markdown('<br><br><br><br>_Made by [Travis Barton Consulting](https://www.travisbarton.com)_',
+    st.markdown('<br>_Made by [Travis Barton Consulting](https://www.travisbarton.com)_',
                 unsafe_allow_html=True)
