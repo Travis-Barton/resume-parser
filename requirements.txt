@@ -1,0 +1,6 @@
+pypdf2~=2.10.5
+mock~=4.0.3
+langchain~=0.0.235
+openai~=0.27.8
+python-dotenv~=1.0.0
+streamlit~=1.25.0
