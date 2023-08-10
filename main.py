@@ -48,7 +48,8 @@ if api_key:
             st.write(f"# {section.replace('_', ' ').capitalize()}\n {result}")  # Display extracted content
 
         # Create a DOCX from the extracted sections
-        doc = Document()
+        # read doucment
+        doc = Document('AIM Profile template.docx')
         for section, content in section_results.items():
             doc.add_heading(section.capitalize(), level=1)
             doc.add_paragraph(content)
