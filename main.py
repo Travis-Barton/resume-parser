@@ -59,6 +59,8 @@ if api_key:
         with st.sidebar:
             st.markdown(get_binary_file_downloader_html(doc_path, 'Click here to download the consolidated DOCX'),
                         unsafe_allow_html=True)
+        st.markdown(get_binary_file_downloader_html(doc_path, 'Click here to download the consolidated DOCX'),
+                    unsafe_allow_html=True)
 else:
     st.markdown('__Please enter your OpenAI API key in the sidebar__')
 
