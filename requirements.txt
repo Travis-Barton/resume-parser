@@ -7,3 +7,4 @@ streamlit~=1.25.0
 python-docx
 faiss-cpu
 tiktoken
+pdfminer.six
