@@ -86,7 +86,7 @@ def embed_example(resume, summary, skills_and_tech, professional_experience, edu
     # embedding = embeder.embed_query(resume)
     # load db
     db = FAISS.load_local(save_path, OpenAIEmbeddings())
-    db.add_texts(texts=resume, meta_data=meta_data, ids=path)
+    db.add_texts(texts=[resume], metadatas=[meta_data], ids=[path])
     db.save_local(save_path)
 
 def make_empty_db(path='vectorstore/'):
