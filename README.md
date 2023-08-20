@@ -28,3 +28,10 @@ python index_resumes.py
 * [Travis Barton Consulting](https://travisbarton.com/) - The company that built this
 
 All tests can be found in the `tests` folder.
+
+
+## todo
+
+1. [] Bold the work location
+2. [] Add the applicant's name to the top of the resume
+3. [] shrink the spacing at the title to 0
