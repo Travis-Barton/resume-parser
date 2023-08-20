@@ -61,10 +61,19 @@ if api_key:
             style = doc.styles['Normal']
             font.name = 'Calibri (Body)'
             content = content.replace("\n- ", "\n• ")
+            content = content.replace("\t- ", "\t• ")
             content = content.replace("\nSUMMARY\n", "")
             content = content.replace("\nSKILLS AND TECHNOLOGY\n", "")
             content = content.replace("\nPROFESSIONAL EXPERIENCE\n", "")
             content = content.replace("\nEDUCATION\n", "")
+            content = content.replace('```education', '')
+            content = content.replace("`", "").replace('skills_and_tech', '')
+            content = content.replace('professional_experience', '')
+            content = content.replace('- ', '• ')
+            if content.startswith(':\n'):
+                content = content[2:]
+            if content.startswith('education'):
+                content = content[9:]
             doc.add_paragraph(content)
             style = doc.styles['Normal']
         doc_path = "AIM Profile.docx"
