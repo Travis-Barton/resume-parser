@@ -1,6 +1,7 @@
 import os
 from docx import Document
-import PyPDF2
+from pdfminer.high_level import extract_text
+
 
 def file_reader(file_object) -> str:
     """
@@ -25,10 +26,7 @@ def file_reader(file_object) -> str:
 
     # Read .pdf files
     elif file_ext == '.pdf':
-        pdf_reader = PyPDF2.PdfFileReader(file_object)
-        content = ''
-        for page_num in range(pdf_reader.numPages):
-            content += pdf_reader.getPage(page_num).extractText()
+        content = extract_text(file_object)
         return content
 
     else:
@@ -37,3 +35,8 @@ def file_reader(file_object) -> str:
 # Example usage:
 # with open('sample.txt', 'r') as file:
 #     print(file_reader(file))
+
+
+if __name__ == '__main__':
+    with open('/Users/travisbarton/PycharmProjects/resume_translator/tests/Travis_Barton_Resume.pdf', 'rb') as file:
+        print(file_reader(file))
