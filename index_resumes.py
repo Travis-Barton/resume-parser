@@ -7,6 +7,7 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings import OpenAIEmbeddings
 from utils import file_reader
 import dotenv
+from tqdm import tqdm
 dotenv.load_dotenv()
 openai.api_key = os.environ.get('OPENAI_API_KEY')
 embeder = OpenAIEmbeddings()
@@ -22,7 +23,7 @@ def main(path: str):
     """
     make_empty_db('vectorstore')
     missed_resumes = []
-    for dir_path in os.listdir(path):
+    for dir_path in tqdm(os.listdir(path)):
         aim_profile = ''
         resume = ''
         full_dir_path = os.path.join(path, dir_path)
