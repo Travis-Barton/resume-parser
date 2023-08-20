@@ -4,12 +4,15 @@ from utils import file_reader
 from llm_class import LLMUtils
 from openai import ChatCompletion
 from docx import Document
+from docx.shared import Pt
 import os
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 
 
 fais_db = "vectorstore"
+
+
 def get_binary_file_downloader_html(bin_file, file_label='File'):
     import base64
     with open(bin_file, 'rb') as f:
@@ -45,14 +48,25 @@ if api_key:
         for section in sections:
             result = llm_util.extract_section(resume=resume, section=section)
             section_results[section] = result
-            st.write(f"# {section.replace('_', ' ').capitalize()}\n {result}")  # Display extracted content
-
+            st.markdown(f"# {section.replace('_', ' ').upper()}\n {result}", unsafe_allow_html=True)  # Display extracted content
         # Create a DOCX from the extracted sections
         # read doucment
         doc = Document('AIM Profile template.docx')
         for section, content in section_results.items():
-            doc.add_heading(section.capitalize(), level=1)
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Calibri (Body)'
+            font.size = Pt(11)
+            doc.add_heading(section.replace('_', ' ').upper().replace('SKILLS AND TECH', 'SKILLS AND TECHNOLOGY'), level=1)
+            style = doc.styles['Normal']
+            font.name = 'Calibri (Body)'
+            content = content.replace("\n- ", "\n• ")
+            content = content.replace("\nSUMMARY\n", "")
+            content = content.replace("\nSKILLS AND TECHNOLOGY\n", "")
+            content = content.replace("\nPROFESSIONAL EXPERIENCE\n", "")
+            content = content.replace("\nEDUCATION\n", "")
             doc.add_paragraph(content)
+            style = doc.styles['Normal']
         doc_path = "AIM Profile.docx"
         doc.save(doc_path)
 
