@@ -36,7 +36,13 @@ class LLMUtils:
         relevant_resumes = [i for i in self.similar_resumes if
                             (i[section] != '') and
                             (i[section] != 'None') and
-                            (i[section])][:2]
+                            (i[section])]
+        if 'gpt-4' in self.model_names:
+            relevant_resumes = relevant_resumes[:1]
+        elif 'gpt-3.5-turbo-16k' in self.model_names:
+            relevant_resumes = relevant_resumes[:3]
+        else:
+            relevant_resumes = relevant_resumes[:3]
         examples = []
         for idx, resume in enumerate(relevant_resumes):
 
