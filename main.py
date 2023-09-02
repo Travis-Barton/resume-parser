@@ -41,7 +41,7 @@ def get_binary_file_downloader_html(bin_file, file_label='File'):
 
 # Sidebar for model selection
 with st.sidebar:
-    model_select = st.selectbox('Select the right model', ['gpt-3.5-turbo-16k', 'gpt-4', 'gpt-3.5-turbo', 'fine-tuned-gpt-3.5-turbo-4k'])
+    model_select = st.selectbox('Select the right model', ['gpt-3.5-turbo-16k', 'fine-tuned-gpt-3.5-turbo-4k'])
     api_key = st.text_input('Enter your OpenAI API key', type='password')
     if api_key:
         openai.api_key = api_key
@@ -61,7 +61,8 @@ if api_key:
     st.success('Press R to rerun the analysis')
     if resume_inputer:
         resume = file_reader(resume_inputer)
-        sections = ['summary', 'skills_and_tech', 'professional_experience', 'education', 'certifications', 'awards']
+        # sections = ['summary', 'skills_and_tech', 'professional_experience', 'education', 'certifications', 'awards']
+        sections = ['summary', 'skills_and_tech', 'professional_experience', 'education']
         section_results = {}
 
         for section in sections:
