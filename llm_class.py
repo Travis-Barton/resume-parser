@@ -40,9 +40,9 @@ class LLMUtils:
         if 'gpt-4' in self.model_names:
             relevant_resumes = relevant_resumes[:1]
         elif 'gpt-3.5-turbo-16k' in self.model_names:
-            relevant_resumes = relevant_resumes[:3]
+            relevant_resumes = relevant_resumes[:2]
         else:
-            relevant_resumes = relevant_resumes[:3]
+            relevant_resumes = relevant_resumes[:2]
         examples = []
         for idx, resume in enumerate(relevant_resumes):
 
