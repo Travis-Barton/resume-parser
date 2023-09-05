@@ -11,6 +11,9 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 import dotenv
 from docxcompose.composer import Composer
 from docx.oxml.ns import qn
+import tiktoken
+tokenizer = tiktoken.get_encoding("cl100k_base")
+
 
 fais_db = "vectorstore2"
 
@@ -120,7 +123,7 @@ def format_professional_experience(content, doc):
 def format_skills_and_tech(content, doc):
     content.replace('\n\n', '\n')
     for paragraph in doc.paragraphs:
-        replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
+        replace_text_in_paragraph(paragraph, replace_dict['skills_and_tech'], content.strip())
 
 
 def replace_text_in_paragraph(paragraph, key, value):
@@ -129,7 +132,6 @@ def replace_text_in_paragraph(paragraph, key, value):
         for item in inline:
             if key in item.text:
                 item.text = item.text.replace(key, value)
-
 
 
 def get_binary_file_downloader_html(bin_file, file_label='File'):
@@ -141,9 +143,90 @@ def get_binary_file_downloader_html(bin_file, file_label='File'):
     return href
 
 
+
+def create_doc(doc_path, sections, section_results, model='fine_tuned'):
+    if model == 'fine_tuned':
+        fine_tuned_parser(section_results, doc_path)
+    elif model == 'gpt_16k':
+        gpt_16k_parser(section_results, doc_path)
+
+
+def content_markup(content, section):
+    # content = content.replace("\n- ", "\n• ")
+    # content = content.replace("\t- ", "\t• ")
+    content = content.replace("\t- ", "\t")
+    content = content.replace("\n- ", "\n ")
+    content = content.replace("\nSUMMARY\n", "")
+    content = content.replace("\nSKILLS AND TECHNOLOGY\n", "")
+    content = content.replace("\nPROFESSIONAL EXPERIENCE\n", "")
+    content = content.replace("\nEDUCATION\n", "")
+    content = content.replace('```education', '')
+    content = content.replace("`", "").replace('skills_and_tech', '')
+    content = content.replace('professional_experience', '')
+    if content.startswith(':\n'):
+        content = content[2:]
+    if content.startswith('education'):
+        content = content[9:]
+    if section == 'professional_experience':
+        content = content.split('\nEducation')[0]
+        content = content.split('\nSKILLS\n')[0]
+        content = content.split('\nSkills Summary\n')[0]
+    return content
+
+
+def fine_tuned_parser(section_results, doc_path):
+    doc_dict = {
+        'summary': Document('templates/SUMMARY.docx'),
+        'skills_and_tech': Document('templates/SKILLS AND TECHNOLOGIES.docx'),
+        'professional_experience': Document('templates/PROFESSIONAL EXPERIENCE.docx'),
+        'education': Document('templates/EDUCATION.docx'),
+    }
+    master_doc = Document('templates/AIM Profile - Template.docx')
+    composer = Composer(master_doc)
+    for section, content in section_results.items():
+        doc = doc_dict[section]
+
+        content = content_markup(content, section)
+        if section == 'professional_experience':
+            content = content.replace('•', '')
+            format_professional_experience(content, doc)
+            continue
+        elif section == 'skills_and_tech':
+            format_skills_and_tech(content, doc)
+            continue
+        # else:
+        #     doc.add_paragraph(HEADER_DICT[section], style='normal bold')
+        #     doc.add_paragraph('\n')
+        #     doc.add_paragraph(content, style='Normal')
+        for paragraph in doc.paragraphs:
+            replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
+
+    for key, value in doc_dict.items():
+        # merge the docs
+        composer.append(value)
+    # save the doc
+    composer.save(doc_path)
+
+
+
+
+def gpt_16k_parser(section_results, doc_path):
+    doc = Document('AIM Profile - Template.docx')
+    for section, content in section_results.items():
+        content = content.replace('•', '')
+        content = content_markup(content, section)
+        for paragraph in doc.paragraphs:
+            replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
+        # doc.add_paragraph(content)
+        # style = doc.styles['Normal']
+    doc.save(doc_path)
+
+
 # Sidebar for model selection
 with st.sidebar:
-    model_select = st.selectbox('Select the right model', ['gpt-3.5-turbo-16k', 'fine-tuned-gpt-3.5-turbo-4k'])
+    model_select = st.selectbox('Select the right model', ['fine-tuned-gpt-3.5-turbo-4k', 'gpt-3.5-turbo-16k'])
+    if model_select == 'gpt-3.5-turbo-16k':
+        st.warning('Using the fine-tuned model is recommended for better results.')
     api_key = st.text_input('Enter your OpenAI API key', type='password')
     if api_key:
         openai.api_key = api_key
@@ -167,67 +250,25 @@ if api_key:
         # sections = ['summary', 'skills_and_tech', 'professional_experience', 'education', 'certifications', 'awards']
         sections = ['summary', 'skills_and_tech', 'professional_experience', 'education']
         section_results = {}
+        resume_len = len(tokenizer.encode(resume))
+        if resume_len > 4096 and model_select == 'fine-tuned-gpt-3.5-turbo-4k':
+            st.error('Resume is too long. Please upload a shorter resume or use the GPT-3.5-turbo-16k model (see sidebar)')
+            st.stop()
 
         for section in sections:
             result = llm_util.extract_section(resume=resume, section=section)
             section_results[section] = result
             with st.expander(f"Extracted {section.replace('_', ' ').upper()}",
-                                expanded=False):
+                             expanded=False):
                 st.markdown(f"# {section.replace('_', ' ').upper()}\n {result}",
                             unsafe_allow_html=True)  # Display extracted content
         # Create a DOCX from the extracted sections
         # read doucment
         # doc = Document('AIM Profile template.docx')
-        doc_dict = {
-            'summary': Document('templates/SUMMARY.docx'),
-            'skills_and_tech': Document('templates/SKILLS AND TECHNOLOGIES.docx'),
-            'professional_experience': Document('templates/PROFESSIONAL EXPERIENCE.docx'),
-            'education': Document('templates/EDUCATION.docx'),
-        }
-        master_doc = Document('templates/AIM Profile - Template.docx')
-        composer = Composer(master_doc)
-        for section, content in section_results.items():
-            doc = doc_dict[section]
-
-            content = content.replace("\n- ", "\n• ")
-            content = content.replace("\t- ", "\t• ")
-            content = content.replace("\nSUMMARY\n", "")
-            content = content.replace("\nSKILLS AND TECHNOLOGY\n", "")
-            content = content.replace("\nSKILLS_AND_TECH\n", "")
-            content = content.replace("\nPROFESSIONAL EXPERIENCE\n", "")
-            content = content.replace("\nEDUCATION\n", "")
-            content = content.replace('```education', '')
-            content = content.replace("`", "").replace('skills_and_tech', '')
-            content = content.replace('professional_experience', '')
-            content = content.replace('- ', '• ')
-            if section == 'professional_experience':
-                content = content.split('\nEducation')[0]
-            if content.startswith(':\n'):
-                content = content[2:]
-            if content.startswith('education'):
-                content = content[9:]
-            if section == 'professional_experience':
-                format_professional_experience(content, doc)
-                continue
-            elif section == 'skills_and_tech':
-                format_skills_and_tech(content, doc)
-                continue
-            # else:
-            #     doc.add_paragraph(HEADER_DICT[section], style='normal bold')
-            #     doc.add_paragraph('\n')
-            #     doc.add_paragraph(content, style='Normal')
-            for paragraph in doc.paragraphs:
-                replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
-
-        for key, value in doc_dict.items():
-            # merge the docs
-            composer.append(value)
-        # save the doc
-        doc_path = "AIM Profile composite.docx"
-        composer.save(doc_path)
-
-        # doc_path = "AIM Profile.docx"
-        # doc.save(doc_path)
+        doc_path = 'resume.docx'
+        # model = 'fine_tuned' if model_select == 'fine-tuned-gpt-3.5-turbo-4k' else 'gpt_16k'
+        model = 'fine_tuned'
+        create_doc(doc_path=doc_path, sections=sections, section_results=section_results, model=model)
 
         # Allow user to download the consolidated DOCX
         with st.sidebar:
