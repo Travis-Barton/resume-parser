@@ -9,6 +9,9 @@ import os
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 import dotenv
+from docxcompose.composer import Composer
+from docx.oxml.ns import qn
+
 fais_db = "vectorstore2"
 
 replace_dict = {
@@ -20,6 +23,104 @@ replace_dict = {
     "awards": "AWARD_REPLACE"
 }
 
+HEADER_DICT = {
+    "summary": "SUMMARY",
+    "skills_and_tech": "SKILLS AND TECHNOLOGIES",
+    "professional_experience": "PROFESSIONAL EXPERIENCE",
+    "education": "EDUCATION",
+    "certifications": "CERTIFICATIONS",
+    "awards": "AWARDS"
+}
+
+
+def list_number(doc, par, prev=None, level=None, num=False):
+    def style_xpath(prefer_single=True):
+        style = par.style.style_id
+        return ('w:abstractNum[{single}w:lvl[@w:ilvl="{level}"]/w:pStyle[@w:val="{style}"]]/@w:abstractNumId').format(
+            style=style, **xpath_options[prefer_single])
+
+    def type_xpath(prefer_single=True):
+        type = 'bullet'
+        return ('w:abstractNum[{single}w:lvl[@w:ilvl="{level}"]/w:numFmt[@w:val="{type}"]]/@w:abstractNumId').format(
+            type=type, **xpath_options[prefer_single])
+
+    def get_abstract_id():
+        for fn in (style_xpath, type_xpath):
+            for prefer_single in (True, False):
+                xpath = fn(prefer_single)
+                ids = numbering.xpath(xpath)
+                if ids:
+                    return min(int(x) for x in ids)
+        return 0
+
+    xpath_options = {
+        True: {
+            'single': 'count(w:lvl)=1 and ',
+            'level': 0},
+        False: {
+            'single': '',
+            'level': level},
+    }
+
+    if prev is None or not prev._p.pPr or not prev._p.pPr.numPr or not prev._p.pPr.numPr.numId:
+        level = 0 if level is None else level
+        numbering = doc.part.numbering_part.numbering_definitions._numbering
+        anum = get_abstract_id()
+        num = numbering.add_num(anum)
+        num.add_lvlOverride(ilvl=level).add_startOverride(1)
+        num = num.numId
+    else:
+        level = prev._p.pPr.numPr.ilvl.val if level is None else level
+        num = prev._p.pPr.numPr.numId.val
+
+    if num:
+        par._p.get_or_add_pPr().get_or_add_numPr().get_or_add_numId().val = num
+    par._p.get_or_add_pPr().get_or_add_numPr().get_or_add_ilvl().val = level
+
+
+def add_list(document, items):
+    paragraphs = []
+    for item in items:
+        if isinstance(item, str):
+            par = document.add_paragraph(item, style='List Paragraph')
+            list_number(document, par, prev=paragraphs[-1] if paragraphs else None)
+            paragraphs.append(par)
+        elif isinstance(item, list):
+            for sub_item in item:
+                par = document.add_paragraph(sub_item, style='List Paragraph')
+                list_number(document, par, prev=paragraphs[-1], level=1)
+                paragraphs.append(par)
+    return paragraphs
+
+
+def get_binary_file_downloader_html(bin_file, file_label='File'):
+    import base64
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    bin_str = base64.b64encode(data).decode()
+    href = f'<a href="data:application/octet-stream;base64,{bin_str}" download="{os.path.basename(bin_file)}">{file_label}</a>'
+    return href
+
+
+def format_professional_experience(content, doc):
+    content = content.strip()
+    lines = content.split('\n\n')
+    bold_lines = []
+    bullet_list = []
+    for brick in lines:
+        for idx, line in enumerate(brick.split('\n')):
+            if idx < 2:
+                doc.add_paragraph(line, style='normal bold')
+            elif line == '\n':
+                doc.add_paragraph(line)
+            else:
+                doc.add_paragraph(line, style='List Bullet')
+
+
+def format_skills_and_tech(content, doc):
+    content.replace('\n\n', '\n')
+    for paragraph in doc.paragraphs:
+        replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
 
 
 def replace_text_in_paragraph(paragraph, key, value):
@@ -28,6 +129,7 @@ def replace_text_in_paragraph(paragraph, key, value):
         for item in inline:
             if key in item.text:
                 item.text = item.text.replace(key, value)
+
 
 
 def get_binary_file_downloader_html(bin_file, file_label='File'):
@@ -57,6 +159,7 @@ st.title("AIM Resume Processor")
 
 # Upload resume
 resume_inputer = st.file_uploader('Upload the resume here', type=['doc', 'docx', 'pdf', 'txt'])
+
 if api_key:
     st.success('Press R to rerun the analysis')
     if resume_inputer:
@@ -68,20 +171,24 @@ if api_key:
         for section in sections:
             result = llm_util.extract_section(resume=resume, section=section)
             section_results[section] = result
-            st.markdown(f"# {section.replace('_', ' ').upper()}\n {result}",
-                        unsafe_allow_html=True)  # Display extracted content
+            with st.expander(f"Extracted {section.replace('_', ' ').upper()}",
+                                expanded=False):
+                st.markdown(f"# {section.replace('_', ' ').upper()}\n {result}",
+                            unsafe_allow_html=True)  # Display extracted content
         # Create a DOCX from the extracted sections
         # read doucment
         # doc = Document('AIM Profile template.docx')
-        doc = Document('AIM Profile - Template.docx')
+        doc_dict = {
+            'summary': Document('templates/SUMMARY.docx'),
+            'skills_and_tech': Document('templates/SKILLS AND TECHNOLOGIES.docx'),
+            'professional_experience': Document('templates/PROFESSIONAL EXPERIENCE.docx'),
+            'education': Document('templates/EDUCATION.docx'),
+        }
+        master_doc = Document('templates/AIM Profile - Template.docx')
+        composer = Composer(master_doc)
         for section, content in section_results.items():
-            # style = doc.styles['Normal']
-            # font = style.font
-            # font.name = 'Calibri (Body)'
-            # font.size = Pt(11)
-            # doc.add_heading(section.replace('_', ' ').upper().replace('SKILLS AND TECH', 'SKILLS AND TECHNOLOGY'), level=1)
-            # style = doc.styles['Normal']
-            # font.name = 'Calibri (Body)'
+            doc = doc_dict[section]
+
             content = content.replace("\n- ", "\n• ")
             content = content.replace("\t- ", "\t• ")
             content = content.replace("\nSUMMARY\n", "")
@@ -99,12 +206,28 @@ if api_key:
                 content = content[2:]
             if content.startswith('education'):
                 content = content[9:]
+            if section == 'professional_experience':
+                format_professional_experience(content, doc)
+                continue
+            elif section == 'skills_and_tech':
+                format_skills_and_tech(content, doc)
+                continue
+            # else:
+            #     doc.add_paragraph(HEADER_DICT[section], style='normal bold')
+            #     doc.add_paragraph('\n')
+            #     doc.add_paragraph(content, style='Normal')
             for paragraph in doc.paragraphs:
                 replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
-            # doc.add_paragraph(content)
-            # style = doc.styles['Normal']
-        doc_path = "AIM Profile.docx"
-        doc.save(doc_path)
+
+        for key, value in doc_dict.items():
+            # merge the docs
+            composer.append(value)
+        # save the doc
+        doc_path = "AIM Profile composite.docx"
+        composer.save(doc_path)
+
+        # doc_path = "AIM Profile.docx"
+        # doc.save(doc_path)
 
         # Allow user to download the consolidated DOCX
         with st.sidebar:
