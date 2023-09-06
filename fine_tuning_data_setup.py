@@ -118,7 +118,8 @@ def format_for_finetune(json_path: Union[str, bytes, os.PathLike], save_path: Un
     """
     Format the data for fine-tuning saving a jsonl file.
     """
-    os.remove(save_path)
+    if os.path.exists(save_path):
+        os.remove(save_path)
     succeeded = 0
     failed = 0
     with open(json_path, 'r') as f:
@@ -167,17 +168,21 @@ def start_finetuning_job(file_path: Union[str, bytes, os.PathLike]):
         purpose='fine-tune',
         user_provided_filename=filename
     )
+    while data_resp['status'] != 'processed':
+        data_resp = openai.File.retrieve(id=data_resp['id'])
     response = openai.FineTuningJob.create(training_file=data_resp['id'], model="gpt-3.5-turbo")
     print(response)
+    while response['status'] != 'completed':
+        response = openai.FineTuningJob.retrieve(id=response['id'])
     return response
 
 
 if __name__ == '__main__':
     import json
     FINETUNE = True
-    profiles_data = process_profiles(path='profiles')
-    with open('profiles_data.json', 'w') as f:
-        json.dump(profiles_data, f, indent=4)
-    format_for_finetune(json_path='profiles_data.json', save_path='fine_tuning_data.jsonl')
+    # profiles_data = process_profiles(path='profiles')
+    # with open('profiles_data.json', 'w') as f:
+    #     json.dump(profiles_data, f, indent=4)
+    # format_for_finetune(json_path='profiles_data.json', save_path='fine_tuning_data.jsonl')
     if FINETUNE:
         start_finetuning_job(file_path='fine_tuning_data.jsonl')
