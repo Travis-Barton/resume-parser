@@ -113,11 +113,11 @@ def format_professional_experience(content, doc):
     for brick in lines:
         for idx, line in enumerate(brick.split('\n')):
             if idx < 2:
-                doc.add_paragraph(line, style='normal bold')
+                doc.add_paragraph(line, style='Travis Normal Bold 2')
             elif line == '\n':
                 doc.add_paragraph(line)
             else:
-                doc.add_paragraph(line, style='List Bullet')
+                doc.add_paragraph(line, style='List Bullet 2')
 
 
 def format_skills_and_tech(content, doc):
@@ -194,10 +194,10 @@ def fine_tuned_parser(section_results, doc_path):
         elif section == 'skills_and_tech':
             format_skills_and_tech(content, doc)
             continue
-        # else:
-        #     doc.add_paragraph(HEADER_DICT[section], style='normal bold')
-        #     doc.add_paragraph('\n')
+        # elif (section == 'summary') or (section == 'education'):
+        #     doc.add_paragraph(section.upper(), style='Travis Normal Bold')
         #     doc.add_paragraph(content, style='Normal')
+        #     continue
         for paragraph in doc.paragraphs:
             replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
 
@@ -211,7 +211,7 @@ def fine_tuned_parser(section_results, doc_path):
 
 
 def gpt_16k_parser(section_results, doc_path):
-    doc = Document('AIM Profile - Template.docx')
+    doc = Document('templates/AIM Profile - Template.docx')
     for section, content in section_results.items():
         content = content.replace('•', '')
         content = content_markup(content, section)
