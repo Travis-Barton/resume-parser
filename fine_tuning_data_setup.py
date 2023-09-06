@@ -154,6 +154,26 @@ def format_for_finetune(json_path: Union[str, bytes, os.PathLike], save_path: Un
 def start_finetuning_job(file_path: Union[str, bytes, os.PathLike]):
     """
     Start a fine-tuning job.
+    Current model
+    {
+      "object": "fine_tuning.job",
+      "id": "ftjob-jHaLv1MpjJSs1wRPhxdiYXla",
+      "model": "gpt-3.5-turbo-0613",
+      "created_at": 1693960013,
+      "finished_at": 1693963571,
+      "fine_tuned_model": "ft:gpt-3.5-turbo-0613:personal::7vbb2i7t",
+      "organization_id": "org-ev4E5NkqvqtGmw8yJ80vok7v",
+      "result_files": [
+        "file-U99WerWwYyvENhHP0ckn7q1M"
+      ],
+      "status": "succeeded",
+      "validation_file": null,
+      "training_file": "file-LdgbGbVzGwXs7pIzdOf62NbU",
+      "hyperparameters": {
+        "n_epochs": 3
+      },
+      "trained_tokens": 2265357
+    }
     """
     filename = os.path.basename(file_path)
 
@@ -172,7 +192,7 @@ def start_finetuning_job(file_path: Union[str, bytes, os.PathLike]):
         data_resp = openai.File.retrieve(id=data_resp['id'])
     response = openai.FineTuningJob.create(training_file=data_resp['id'], model="gpt-3.5-turbo")
     print(response)
-    while response['status'] != 'completed':
+    while response['status'] != 'succeeded':
         response = openai.FineTuningJob.retrieve(id=response['id'])
     return response
 
