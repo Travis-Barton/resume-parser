@@ -123,7 +123,7 @@ def format_professional_experience(content, doc):
 def format_skills_and_tech(content, doc):
     content.replace('\n\n', '\n')
     for line in content.split('\n'):
-        doc.add_paragraph(line, style='List 2')
+        doc.add_paragraph(line, style='List Bullet 2')
     # for paragraph in doc.paragraphs:
     #     replace_text_in_paragraph(paragraph, replace_dict['skills_and_tech'], content.strip())
 
