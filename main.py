@@ -12,8 +12,8 @@ import dotenv
 from docxcompose.composer import Composer
 from docx.oxml.ns import qn
 import tiktoken
-tokenizer = tiktoken.get_encoding("cl100k_base")
 
+tokenizer = tiktoken.get_encoding("cl100k_base")
 
 fais_db = "vectorstore2"
 
@@ -127,11 +127,14 @@ def format_skills_and_tech(content, doc):
     # for paragraph in doc.paragraphs:
     #     replace_text_in_paragraph(paragraph, replace_dict['skills_and_tech'], content.strip())
 
+
 def format_education(content, doc):
     doc.add_paragraph(content, style='Travis Normal')
 
+
 def format_summary(content, doc):
     doc.add_paragraph(content, style='Travis Normal')
+
 
 def replace_text_in_paragraph(paragraph, key, value):
     if key in paragraph.text:
@@ -141,7 +144,6 @@ def replace_text_in_paragraph(paragraph, key, value):
                 item.text = item.text.replace(key, value)
 
 
-
 def get_binary_file_downloader_html(bin_file, file_label='File'):
     import base64
     with open(bin_file, 'rb') as f:
@@ -149,7 +151,6 @@ def get_binary_file_downloader_html(bin_file, file_label='File'):
     bin_str = base64.b64encode(data).decode()
     href = f'<a href="data:application/octet-stream;base64,{bin_str}" download="{os.path.basename(bin_file)}">{file_label}</a>'
     return href
-
 
 
 def create_doc(doc_path, sections, section_results, model='fine_tuned'):
@@ -251,9 +252,6 @@ def fine_tuned_parser(section_results, doc_path):
     final_doc.save(doc_path)
 
 
-
-
-
 def gpt_16k_parser(section_results, doc_path):
     doc = Document('templates/AIM Profile - Template.docx')
     for section, content in section_results.items():
@@ -296,7 +294,8 @@ if api_key:
         section_results = {}
         resume_len = len(tokenizer.encode(resume))
         if resume_len > 4096 and model_select == 'fine-tuned-gpt-3.5-turbo-4k':
-            st.error('Resume is too long. Please upload a shorter resume or use the GPT-3.5-turbo-16k model (see sidebar)')
+            st.error(
+                'Resume is too long. Please upload a shorter resume or use the GPT-3.5-turbo-16k model (see sidebar)')
             st.stop()
 
         for section in sections:
