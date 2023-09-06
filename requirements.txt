@@ -6,5 +6,8 @@ python-dotenv~=1.0.0
 streamlit~=1.25.0
 python-docx
 faiss-cpu
-tiktoken
+tiktoken~=0.4.0
 pdfminer.six
+docxcompose~=1.4.0
+tqdm~=4.66.1
+transformers~=4.32.1
