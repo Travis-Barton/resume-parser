@@ -45,8 +45,6 @@ class LLMUtils:
             relevant_resumes = relevant_resumes[:2]
         examples = []
         for idx, resume in enumerate(relevant_resumes):
-
-
             example = f"""
 Example {idx + 1}:
 
@@ -113,34 +111,57 @@ Here is the resume candidates resume. Use ONLY it to generate the extracted sect
 """
         with open('temp_prompt.txt', 'w') as f:
             f.write(system_prompt + '\n\n' + human_prompt)
-        response = self.model.create(
-            model=self.model_names,
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": human_prompt}
-            ]
-        )
+        # gracefuly raise when the prompt is too long or the response was rejected to hitting the hard limit for billing
+        try:
+            response = self.model.create(
+                model=self.model_names,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": human_prompt}
+                ]
+            )
+        except openai.error.OpenAIError as e:
+            if 'Request payload size exceeds the limit' in str(e):
+                # Error due to prompt being too long
+                raise ValueError("The prompt is too long! Try the gpt-3.5-turbo-16k model instead!") from e
+            elif 'Your request was rejected because you have hit the hard limit for billing' in str(e):
+                # Error due to hitting the hard billing limit
+                raise ValueError("Hit the hard billing limit! Please contact your billing administrator.") from e
+            else:
+                # Re-raise the original error if it's another type
+                raise
         print(system_prompt)
         return response['choices'][0]['message']['content']  # return the text not the completion object
 
-    def fine_tuned_extract_section(self, resume, section):
+    @staticmethod
+    def fine_tuned_extract_section(resume, section, model="ft:gpt-3.5-turbo-0613:open-humans::7uQBLVSG"):
         system_prompt = f"You are a resume parser. Extract the {section} section"
-        completion = openai.ChatCompletion.create(
-            model="ft:gpt-3.5-turbo-0613:open-humans::7uQBLVSG",
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": resume}
-            ],
-            temperature=0.0,
-        )
+        try:
+            completion = openai.ChatCompletion.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_prompt},
+                    {
+                        "role": "user",
+                        "content": resume}
+                ],
+                temperature=0.0,
+            )
+        except openai.error.OpenAIError as e:
+            if 'Request payload size exceeds the limit' in str(e):
+                # Error due to prompt being too long
+                raise ValueError("The prompt is too long! Try the gpt-3.5-turbo-16k model instead!") from e
+            elif 'Your request was rejected because you have hit the hard limit for billing' in str(e):
+                # Error due to hitting the hard billing limit
+                raise ValueError("Hit the hard billing limit! Please contact your billing administrator.") from e
+            else:
+                # Re-raise the original error if it's another type
+                raise
 
         return completion['choices'][0]['message']['content']
-
