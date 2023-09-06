@@ -138,7 +138,8 @@ Here is the resume candidates resume. Use ONLY it to generate the extracted sect
         return response['choices'][0]['message']['content']  # return the text not the completion object
 
     @staticmethod
-    def fine_tuned_extract_section(resume, section, model="ft:gpt-3.5-turbo-0613:open-humans::7uQBLVSG"):
+    def fine_tuned_extract_section(resume, section, model='ft:gpt-3.5-turbo-0613:personal::7vbb2i7t'):
+        # "ft:gpt-3.5-turbo-0613:open-humans::7uQBLVSG"
         system_prompt = f"You are a resume parser. Extract the {section} section"
         try:
             completion = openai.ChatCompletion.create(
