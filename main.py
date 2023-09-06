@@ -122,9 +122,16 @@ def format_professional_experience(content, doc):
 
 def format_skills_and_tech(content, doc):
     content.replace('\n\n', '\n')
-    for paragraph in doc.paragraphs:
-        replace_text_in_paragraph(paragraph, replace_dict['skills_and_tech'], content.strip())
+    for line in content.split('\n'):
+        doc.add_paragraph(line, style='List 2')
+    # for paragraph in doc.paragraphs:
+    #     replace_text_in_paragraph(paragraph, replace_dict['skills_and_tech'], content.strip())
 
+def format_education(content, doc):
+    doc.add_paragraph(content, style='Travis Normal')
+
+def format_summary(content, doc):
+    doc.add_paragraph(content, style='Travis Normal')
 
 def replace_text_in_paragraph(paragraph, key, value):
     if key in paragraph.text:
@@ -132,6 +139,7 @@ def replace_text_in_paragraph(paragraph, key, value):
         for item in inline:
             if key in item.text:
                 item.text = item.text.replace(key, value)
+
 
 
 def get_binary_file_downloader_html(bin_file, file_label='File'):
@@ -194,18 +202,54 @@ def fine_tuned_parser(section_results, doc_path):
         elif section == 'skills_and_tech':
             format_skills_and_tech(content, doc)
             continue
-        # elif (section == 'summary') or (section == 'education'):
-        #     doc.add_paragraph(section.upper(), style='Travis Normal Bold')
-        #     doc.add_paragraph(content, style='Normal')
-        #     continue
-        for paragraph in doc.paragraphs:
-            replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
+        elif section == 'education':
+            format_education(content, doc)
+            continue
+        elif section == 'summary':
+            format_summary(content, doc)
+            continue
+
+        # for paragraph in doc.paragraphs:
+        #     replace_text_in_paragraph(paragraph, replace_dict[section], content.strip())
 
     for key, value in doc_dict.items():
         # merge the docs
         composer.append(value)
     # save the doc
     composer.save(doc_path)
+    final_doc = Document(doc_path)
+    for paragraph in final_doc.paragraphs:
+        for run in paragraph.runs:
+            run.font.name = 'Calibri'
+        paragraph.space_before = 0  # Set before spacing to 0
+        paragraph.space_after = 0  # Set after spacing to 0
+
+        # For tables
+    for table in final_doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.name = 'Calibri'
+                    paragraph.space_before = 0  # Set before spacing to 0
+                    paragraph.space_after = 0  # Set after spacing to 0
+
+        # For headers and footers
+    for section in final_doc.sections:
+        # Header
+        for paragraph in section.header.paragraphs:
+            for run in paragraph.runs:
+                run.font.name = 'Calibri'
+            paragraph.space_before = 0  # Set before spacing to 0
+            paragraph.space_after = 0  # Set after spacing to 0
+        # Footer
+        for paragraph in section.footer.paragraphs:
+            for run in paragraph.runs:
+                run.font.name = 'Calibri'
+            paragraph.space_before = 0  # Set before spacing to 0
+            paragraph.space_after = 0  # Set after spacing to 0
+    final_doc.save(doc_path)
+
 
 
 
