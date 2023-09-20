@@ -11,3 +11,4 @@ pdfminer.six
 docxcompose~=1.4.0
 tqdm~=4.66.1
 transformers~=4.32.1
+textract
