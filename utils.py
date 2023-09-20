@@ -29,7 +29,11 @@ def file_reader(file_object) -> str:
 
         # Read .pdf files
         elif file_ext == '.pdf':
-            content = extract_text(file_object)
+            with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as temp:
+                temp.write(file_object.getvalue())
+                temp.flush()
+                content = extract_text(temp.name)
+            # content = extract_text(file_object)
             return content
 
         else:
