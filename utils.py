@@ -38,6 +38,8 @@ def file_reader(file_object) -> str:
         # if value error
         if 'application/vnd.openxmlformats-officedocument.themeManager+xm' in str(e):
             raise ValueError('This file is a pre-2007 word-doc. Please convert to a .docx or .pdf file and try again.')
+        else:
+            raise e
 
 # Example usage:
 # with open('sample.txt', 'r') as file:

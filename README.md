@@ -28,3 +28,17 @@ python index_resumes.py
 * [Travis Barton Consulting](https://travisbarton.com/) - The company that built this
 
 All tests can be found in the `tests` folder.
+
+## todo list
+- [ ] Add names
+- [ ] remove guesswork on skills
+- [ ] Add upvote/downvote feature
+- [ ] Add save feature to S3
+- [x] Add paste feature
+- [ ] Add logins
+- ~~[ ] Connect to Job Board~~ nixed for security concerns
+
+
+## Fine-tuning metrics
+- [ ] give instructions to only add contract label if it is a contract job
+- [ ] translate each document into every file type and add to the training data (docx, pdf, txt)
