@@ -283,12 +283,24 @@ with st.sidebar:
 st.title("AIM Resume Processor")
 
 # Upload resume
-resume_inputer = st.file_uploader('Upload the resume here', type=['doc', 'docx', 'pdf', 'txt'])
+check = st.checkbox('Paste Mode', value=False)
+if not check:
+    resume_inputer = st.file_uploader('Upload the resume here', type=['doc', 'docx', 'pdf', 'txt'])
+else:
+    resume_inputer = st.text_area('Paste the resume here')
 
 if api_key:
     st.success('Press R to rerun the analysis')
     if resume_inputer:
-        resume = file_reader(resume_inputer)
+        try:
+            resume = file_reader(resume_inputer) if not check else resume_inputer
+            print(resume)
+            if (not resume) or (resume == '') or (len(resume) < 100):
+                st.error("The resume returned empty. Please try again.")
+                st.stop()
+        except Exception as e:
+            st.error(f'Error reading file: {e}')
+            st.stop()
         # sections = ['summary', 'skills_and_tech', 'professional_experience', 'education', 'certifications', 'awards']
         sections = ['summary', 'skills_and_tech', 'professional_experience', 'education']
         section_results = {}
@@ -324,6 +336,7 @@ else:
 
 with st.sidebar:
     st.markdown('---')
+    st.markdown('Whats new?\n1. New and improved error handling and explanations.\n2. A paste mode for stubborn resumes.')
     st.markdown(
         "<br><br><br><br>Something broken? <br>[File an issue](https://github.com/Travis-Barton/resume-parser/issues) or "
         "reach out to me <a href='mailto:me@travisbarton.com?subject=Resume Parser'>by email</a>",

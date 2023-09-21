@@ -29,9 +29,17 @@ python index_resumes.py
 
 All tests can be found in the `tests` folder.
 
+## todo list
+- [ ] Add names
+- [ ] remove guesswork on skills
+- [ ] Add upvote/downvote feature
+- [ ] Add save feature to S3
+- [x] Add paste feature
+- [ ] Add logins
+- ~~[ ] Connect to Job Board~~ nixed for security concerns
 
-## todo
 
-1. [] Bold the work location
-2. [] Add the applicant's name to the top of the resume
-3. [] shrink the spacing at the title to 0
+## Fine-tuning metrics
+- [ ] give instructions to only add contract label if it is a contract job
+- [ ] translate each document into every file type and add to the training data (docx, pdf, txt)
+
