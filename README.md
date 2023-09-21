@@ -42,3 +42,4 @@ All tests can be found in the `tests` folder.
 ## Fine-tuning metrics
 - [ ] give instructions to only add contract label if it is a contract job
 - [ ] translate each document into every file type and add to the training data (docx, pdf, txt)
+
