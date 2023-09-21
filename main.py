@@ -336,6 +336,7 @@ else:
 
 with st.sidebar:
     st.markdown('---')
+    st.markdown('Whats new?\n1. New and improved error handling and explanations.\n2. A paste mode for stubborn resumes.')
     st.markdown(
         "<br><br><br><br>Something broken? <br>[File an issue](https://github.com/Travis-Barton/resume-parser/issues) or "
         "reach out to me <a href='mailto:me@travisbarton.com?subject=Resume Parser'>by email</a>",
