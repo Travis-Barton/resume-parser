@@ -105,6 +105,12 @@ def get_binary_file_downloader_html(bin_file, file_label='File'):
     return href
 
 
+def get_binary_file_downloader(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return data
+
+
 def format_professional_experience(content, doc):
     content = content.strip()
     lines = content.split('\n\n')
@@ -326,16 +332,6 @@ if api_key:
         # model = 'fine_tuned' if model_select == 'fine-tuned-gpt-3.5-turbo-4k' else 'gpt_16k'
         model = 'fine_tuned'
         create_doc(doc_path=doc_path, sections=sections, section_results=section_results, model=model)
-
-        # Allow user to download the consolidated DOCX
-        # with st.sidebar:
-        #     st.markdown(get_binary_file_downloader_html(doc_path, 'Click here to download the consolidated DOCX'),
-        #                 unsafe_allow_html=True)
-        def get_binary_file_downloader(bin_file, file_label='File'):
-            with open(bin_file, 'rb') as f:
-                data = f.read()
-            return data
-
 
         with st.sidebar:
             data = get_binary_file_downloader(doc_path, 'Click here to download the consolidated DOCX')
