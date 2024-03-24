@@ -266,7 +266,9 @@ def gpt_16k_parser(section_results, doc_path):
 
 # Sidebar for model selection
 with st.sidebar:
-    model_select = st.selectbox('Select the right model', ['fine-tuned-gpt-3.5-turbo-4k', 'gpt-3.5-turbo-16k'])
+    model_select = st.selectbox('Select the right model', ['fine-tuned-gpt-3.5-turbo-4k',
+                                                           'fine_tuned_gpt-3.5-turbo-16k-no-dot',
+                                                           'gpt-3.5-turbo-16k', ])
     if model_select == 'gpt-3.5-turbo-16k':
         st.warning('Using the fine-tuned model is recommended for better results.')
     api_key = st.text_input('Enter your OpenAI API key', type='password')
@@ -326,17 +328,29 @@ if api_key:
         create_doc(doc_path=doc_path, sections=sections, section_results=section_results, model=model)
 
         # Allow user to download the consolidated DOCX
+        # with st.sidebar:
+        #     st.markdown(get_binary_file_downloader_html(doc_path, 'Click here to download the consolidated DOCX'),
+        #                 unsafe_allow_html=True)
+        def get_binary_file_downloader(bin_file, file_label='File'):
+            with open(bin_file, 'rb') as f:
+                data = f.read()
+            return data
+
+
         with st.sidebar:
-            st.markdown(get_binary_file_downloader_html(doc_path, 'Click here to download the consolidated DOCX'),
-                        unsafe_allow_html=True)
-        st.markdown(get_binary_file_downloader_html(doc_path, 'Click here to download the consolidated DOCX'),
-                    unsafe_allow_html=True)
+            data = get_binary_file_downloader(doc_path, 'Click here to download the consolidated DOCX')
+            st.download_button(label='Download DOCX', data=data, file_name='consolidated.docx',
+                               mime='application/octet-stream')
+
+        data = get_binary_file_downloader(doc_path, 'Click here to download the consolidated DOCX')
+        st.download_button(label='Download DOCX', data=data, file_name='consolidated.docx',
+                           mime='application/octet-stream', key='download_button2')
 else:
     st.markdown('__Please enter your OpenAI API key in the sidebar__')
 
 with st.sidebar:
     st.markdown('---')
-    st.markdown('Whats new?\n1. New and improved error handling and explanations.\n2. A paste mode for stubborn resumes.')
+    st.markdown('Whats new?\n1. A new fine-tuned model for not including periods.\n2. a better looking download button.')
     st.markdown(
         "<br><br><br><br>Something broken? <br>[File an issue](https://github.com/Travis-Barton/resume-parser/issues) or "
         "reach out to me <a href='mailto:me@travisbarton.com?subject=Resume Parser'>by email</a>",

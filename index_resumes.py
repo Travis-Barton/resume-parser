@@ -15,7 +15,7 @@ embeder = OpenAIEmbeddings()
 
 def main(path: str, vec_path='vectorstore2'):
     """
-    The profiles directory is a series of directories. Each has two files
+    The profiles_without_dot directory is a series of directories. Each has two files
     (one docx and one of many types). If it starts with 'AIM P' then it's
     an AIM profile; otherwise, it's the user's resume.
 
@@ -100,4 +100,4 @@ def make_empty_db(path='vectorstore/'):
 
 
 if __name__ == '__main__':
-    main(path='profiles')
+    main(path='profile_types/profiles_without_dot')

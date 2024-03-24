@@ -4,6 +4,7 @@ from pdfminer.high_level import extract_text
 import re
 import textract
 import tempfile
+import io
 
 
 def file_reader(file_object) -> str:
@@ -30,10 +31,12 @@ def file_reader(file_object) -> str:
         # Read .pdf files
         elif file_ext == '.pdf':
             with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as temp:
-                temp.write(file_object.getvalue())
+                if isinstance(file_object, io.BufferedReader):
+                    temp.write(file_object.read())
+                else:
+                    temp.write(file_object.getvalue())
                 temp.flush()
                 content = extract_text(temp.name)
-            # content = extract_text(file_object)
             return content
 
         else:

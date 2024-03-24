@@ -31,7 +31,7 @@ JSON_TEMPLATE = {
 
 def process_profiles(path: str):
     """
-    Process profiles in the specified directory and return a list of JSON objects.
+    Process profiles_without_dot in the specified directory and return a list of JSON objects.
     """
     profiles_data = []
     for dir_path in tqdm(os.listdir(path)):
@@ -137,8 +137,8 @@ def format_for_finetune(json_path: Union[str, bytes, os.PathLike], save_path: Un
             json_format['messages'][0]['content'] = f'You are a resume parser. Extract the {key} section'
             # check if total length is less than 4096
             full_str = str(json_format)
-            if len(tokenizer.encode(full_str)) > 4096:
-                print(f'Length of {idx} is greater than 4096. Length: {len(tokenizer.encode(full_str))}')
+            if len(tokenizer.encode(full_str)) > 16000:
+                print(f'Length of {idx} is greater than 12096. Length: {len(tokenizer.encode(full_str))}')
                 failed += 1
                 del json_format
                 continue
@@ -179,9 +179,9 @@ def start_finetuning_job(file_path: Union[str, bytes, os.PathLike]):
 
     # check if job is running already
     jobs = openai.FineTuningJob.list()
-    if jobs['data']:
-        print(f'Job {filename} is already running.')
-        return
+    # if jobs['data']:
+    #     print(f'Job {filename} is already running.')
+    #     return
 
     data_resp = openai.File.create(
         file=open(file_path, "rb"),
@@ -190,7 +190,7 @@ def start_finetuning_job(file_path: Union[str, bytes, os.PathLike]):
     )
     while data_resp['status'] != 'processed':
         data_resp = openai.File.retrieve(id=data_resp['id'])
-    response = openai.FineTuningJob.create(training_file=data_resp['id'], model="gpt-3.5-turbo")
+    response = openai.FineTuningJob.create(training_file=data_resp['id'], model="gpt-3.5-turbo-0125")
     print(response)
     while response['status'] != 'succeeded':
         response = openai.FineTuningJob.retrieve(id=response['id'])
@@ -200,9 +200,13 @@ def start_finetuning_job(file_path: Union[str, bytes, os.PathLike]):
 if __name__ == '__main__':
     import json
     FINETUNE = True
-    # profiles_data = process_profiles(path='profiles')
-    # with open('profiles_data.json', 'w') as f:
-    #     json.dump(profiles_data, f, indent=4)
-    # format_for_finetune(json_path='profiles_data.json', save_path='fine_tuning_data.jsonl')
+    dot = '_with_dot'
+    profiles_data = process_profiles(path='profile_types/profiles' + dot)
+    with open('profiles_data.json', 'w') as f:
+        json.dump(profiles_data, f, indent=4)
+    format_for_finetune(json_path='profiles_data.json', save_path=f'fine_tuning_data{dot}.jsonl')
     if FINETUNE:
-        start_finetuning_job(file_path='fine_tuning_data.jsonl')
+        job = start_finetuning_job(file_path=f'fine_tuning_data{dot}.jsonl')
+        print("=====================================")
+        print(f"Successfully started fine-tuning job: {job['id']}")
+        print("=====================================")
