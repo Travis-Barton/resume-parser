@@ -43,7 +43,7 @@ class LLMUtilsTests(unittest.TestCase):
         self.assertTrue("Example 3:" in formatted)
 
     def test_extract_section(self):
-        resume_path = os.path.join("..", "profiles", "Abbas Sheikh", "DiceResumeCVABBASSHEIKH+1.docx")
+        resume_path = os.path.join("..", "profiles_without_dot", "Abbas Sheikh", "DiceResumeCVABBASSHEIKH+1.docx")
         with open(resume_path, 'rb') as resume_file:
             resume_content = file_reader(resume_file)
 

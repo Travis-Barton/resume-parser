@@ -14,9 +14,9 @@ dotenv.load_dotenv()
 class TestAIMProcessing(unittest.TestCase):
 
     def setUp(self):
-        # Temporary directory to mock the 'profiles' structure
+        # Temporary directory to mock the 'profiles_without_dot' structure
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.profile_path = os.path.join(self.temp_dir.name, 'profiles')
+        self.profile_path = os.path.join(self.temp_dir.name, 'profiles_without_dot')
         os.makedirs(self.profile_path)
         openai.api_key = os.environ.get('OPENAI_API_KEY')
         # Create sample AIM profile and resume
@@ -63,7 +63,7 @@ class TestAIMProcessing(unittest.TestCase):
         mock_faiss_instance = Mock()
         MockFAISS.return_value = mock_faiss_instance
 
-        main('../profiles')  # As the profiles dir is created in setUp, it'll work on that
+        main('../profile_types/profiles_without_dot')  # As the profiles_without_dot dir is created in setUp, it'll work on that
 
 
 

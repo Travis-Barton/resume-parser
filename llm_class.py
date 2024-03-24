@@ -65,8 +65,8 @@ Example {idx + 1}:
         3. format the examples into a string
         4. append the examples into the same string
         """
-        if self.model_names == 'fine-tuned-gpt-3.5-turbo-4k':
-            return self.fine_tuned_extract_section(resume, section)
+        if self.model_names == 'fine-tuned-gpt-3.5-turbo-4k' or self.model_names == 'fine_tuned_gpt-3.5-turbo-16k-no-dot':
+            return self.fine_tuned_extract_section(resume, section, self.model_names)
         self.find_similar_resumes(resume)
         self.similar_resumes = self.format_resume_examples(section)
         system_prompt = f"""
@@ -138,8 +138,13 @@ Here is the resume candidates resume. Use ONLY it to generate the extracted sect
         return response['choices'][0]['message']['content']  # return the text not the completion object
 
     @staticmethod
-    def fine_tuned_extract_section(resume, section, model='ft:gpt-3.5-turbo-0613:personal::7vbb2i7t'):
+    def fine_tuned_extract_section(resume, section, model='fine-tuned-gpt-3.5-turbo-4k'):
         # "ft:gpt-3.5-turbo-0613:open-humans::7uQBLVSG"
+        model_translations = {
+            'fine_tuned_gpt-3.5-turbo-16k-no-dot': 'ft:gpt-3.5-turbo-0125:personal::95Pk7O79',
+            'fine-tuned-gpt-3.5-turbo-4k': 'ft:gpt-3.5-turbo-0613:personal::7vbb2i7t'
+        }
+        model = model_translations[model]
         system_prompt = f"You are a resume parser. Extract the {section} section"
         try:
             completion = openai.ChatCompletion.create(
@@ -163,6 +168,6 @@ Here is the resume candidates resume. Use ONLY it to generate the extracted sect
                 raise ValueError("Hit the hard billing limit! Please contact your billing administrator.") from e
             else:
                 # Re-raise the original error if it's another type
-                raise
+                raise Exception(f"An error occurred: {e}")
 
         return completion['choices'][0]['message']['content']
