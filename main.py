@@ -334,11 +334,11 @@ if api_key:
         create_doc(doc_path=doc_path, sections=sections, section_results=section_results, model=model)
 
         with st.sidebar:
-            data = get_binary_file_downloader(doc_path, 'Click here to download the consolidated DOCX')
+            data = get_binary_file_downloader(doc_path)
             st.download_button(label='Download DOCX', data=data, file_name='consolidated.docx',
                                mime='application/octet-stream')
 
-        data = get_binary_file_downloader(doc_path, 'Click here to download the consolidated DOCX')
+        data = get_binary_file_downloader(doc_path)
         st.download_button(label='Download DOCX', data=data, file_name='consolidated.docx',
                            mime='application/octet-stream', key='download_button2')
 else:
