@@ -33,6 +33,10 @@ class LLMUtils:
         """
         Using only the 3 most similar resumes, format the resumes so that they create a string that looks like this:
         """
+        # Handle name section differently - it doesn't need examples
+        if section == 'name':
+            return ""
+            
         relevant_resumes = [i for i in self.similar_resumes if
                             (i[section] != '') and
                             (i[section] != 'None') and
@@ -65,6 +69,10 @@ Example {idx + 1}:
         3. format the examples into a string
         4. append the examples into the same string
         """
+        # Handle name extraction specially
+        if section == 'name':
+            return self.extract_name(resume)
+            
         if self.model_names == 'fine-tuned-gpt-3.5-turbo-4k' or self.model_names == 'fine_tuned_gpt-3.5-turbo-16k-no-dot':
             return self.fine_tuned_extract_section(resume, section, self.model_names)
         self.find_similar_resumes(resume)
@@ -137,8 +145,54 @@ Here is the resume candidates resume. Use ONLY it to generate the extracted sect
         print(system_prompt)
         return response['choices'][0]['message']['content']  # return the text not the completion object
 
+    def extract_name(self, resume: str):
+        """
+        Extract the applicant's name from the resume using a simple prompt
+        """
+        try:
+            response = self.model.create(
+                model='gpt-3.5-turbo',
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a resume parser. Extract only the applicant's full name from the resume. Return only the name, nothing else. If you cannot find a clear name, return 'Name Not Found'."
+                    },
+                    {
+                        "role": "user", 
+                        "content": f"Extract the applicant's name from this resume:\n\n{resume}"
+                    }
+                ],
+                temperature=0.0,
+                max_tokens=50
+            )
+            return response['choices'][0]['message']['content'].strip()
+        except Exception as e:
+            return "Name Not Found"
+
     @staticmethod
     def fine_tuned_extract_section(resume, section, model='fine-tuned-gpt-3.5-turbo-4k'):
+        # Handle name extraction for fine-tuned models
+        if section == 'name':
+            try:
+                completion = openai.ChatCompletion.create(
+                    model='gpt-3.5-turbo',
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a resume parser. Extract only the applicant's full name from the resume. Return only the name, nothing else. If you cannot find a clear name, return 'Name Not Found'."
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Extract the applicant's name from this resume:\n\n{resume}"
+                        }
+                    ],
+                    temperature=0.0,
+                    max_tokens=50
+                )
+                return completion['choices'][0]['message']['content'].strip()
+            except Exception as e:
+                return "Name Not Found"
+        
         # "ft:gpt-3.5-turbo-0613:open-humans::7uQBLVSG"
         model_translations = {
             'fine_tuned_gpt-3.5-turbo-16k-no-dot': 'ft:gpt-3.5-turbo-0125:personal::95Pk7O79',
