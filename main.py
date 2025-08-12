@@ -18,6 +18,7 @@ tokenizer = tiktoken.get_encoding("cl100k_base")
 fais_db = "vectorstore2"
 
 replace_dict = {
+    "name": "APPLICANT_NAME",
     "summary": "SUMMARY_REPLACE",
     "skills_and_tech": "SKILL_REPLACE",
     "professional_experience": "JOBEXPERIENCE_REPLACE",
@@ -197,8 +198,16 @@ def fine_tuned_parser(section_results, doc_path):
         'education': Document('templates/EDUCATION.docx'),
     }
     master_doc = Document('templates/AIM Profile - Template.docx')
+    
+    # Handle name replacement in master template
+    if 'name' in section_results:
+        for paragraph in master_doc.paragraphs:
+            replace_text_in_paragraph(paragraph, replace_dict['name'], section_results['name'].strip())
+    
     composer = Composer(master_doc)
     for section, content in section_results.items():
+        if section == 'name':
+            continue  # Name is already handled in master template
         doc = doc_dict[section]
 
         content = content_markup(content, section)
@@ -310,7 +319,7 @@ if api_key:
             st.error(f'Error reading file: {e}')
             st.stop()
         # sections = ['summary', 'skills_and_tech', 'professional_experience', 'education', 'certifications', 'awards']
-        sections = ['summary', 'skills_and_tech', 'professional_experience', 'education']
+        sections = ['name', 'summary', 'skills_and_tech', 'professional_experience', 'education']
         section_results = {}
         resume_len = len(tokenizer.encode(resume))
         if resume_len > 4096 and model_select == 'fine-tuned-gpt-3.5-turbo-4k':
