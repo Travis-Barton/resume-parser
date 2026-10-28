@@ -1,45 +1,63 @@
-# AIM Resume Parser
+# AIM Resume Processor
 
-This app translate resumes from DOCX and PDF into a specific DOC format.
+Convert a PDF, DOCX, UTF-8 text file, or pasted resume into the existing AIM Word format.
 
-## Getting Started
+The app now offers **GPT-6 Luna** and **GPT-6.1 Terra** with synthetic few-shot examples
+and structured extraction. The retired GPT-3.5 fine-tunes are no longer used.
+These are replacement extraction modes; equivalent quality to the former fine-tune
+has not been established.
 
-To use this you need to install the following dependencies:
-```
-pip install -r requirements.txt
-```
+## Run locally
 
-You will also need an [API key from OpenAI](https://platform.openai.com/).
+Use Python 3.12:
 
-To run this code, simply run the following command:
-```
-streamlit run main.py
-```
-
-To recreate the vectorstore that powers the dynamic multi-shot prompting you will need to run the file `index_resumes.py`
-```
-python index_resumes.py
+```sh
+python -m venv .venv
+# Activate .venv using your shell's activation command.
+python -m pip install -r requirements.txt
+python -m streamlit run main.py
 ```
 
-## Built With
+Select a model, enter your OpenAI project API key into the password field, and
+upload or paste a resume. Click **Process resume**, review the extracted facts,
+and download the DOCX.
 
-* [Streamlit](https://streamlit.io/) - The web framework used
-* [OpenAI](https://openai.com/) - The AI used
-* [Travis Barton Consulting](https://travisbarton.com/) - The company that built this
+The entered key is used for this session's client. There is no hidden hosted-key
+override and no key stored in source or an environment file by this app.
+Your selected OpenAI project is billed when you process. Editing the input, key,
+or model clears the previous result. Downloads do not call the model again.
+For old binary `.doc` files, convert to DOCX/PDF first; scanned PDFs require
+text extraction/OCR outside this app.
 
-All tests can be found in the `tests` folder.
+## Format and data handling
 
-## todo list
-- [ ] Add names
-- [ ] remove guesswork on skills
-- [ ] Add upvote/downvote feature
-- [ ] Add save feature to S3
-- [x] Add paste feature
-- [ ] Add logins
-- ~~[ ] Connect to Job Board~~ nixed for security concerns
+- Output: applicant name, summary, skills/technologies, professional experience,
+  and education, using the existing AIM templates and paragraph styles.
+- Missing facts remain blank. The app does not invent contract status or dates.
+- Structured JSON is validated and converted to document sections in Python.
+- DOCX output is generated in memory per session, not a shared `resume.docx`.
+- Raw resumes, prompts, API keys, and provider error bodies are not logged.
+- Responses are requested with `store=False`. This is not a claim of zero provider
+  retention; applicable API data policies still govern processing.
+- Input is capped at 100,000 characters and output at 8,192 tokens. Refused,
+  truncated, or invalid model output does not produce a partial document.
 
+## Offline tests
 
-## Fine-tuning metrics
-- [ ] give instructions to only add contract label if it is a contract job
-- [ ] translate each document into every file type and add to the training data (docx, pdf, txt)
+```sh
+python -m unittest discover -s tests -v
+python -m pip check
+```
+
+Tests use synthetic fixtures and mocked/in-memory transports. They verify code
+and document behavior, not real-model extraction quality. The historical FAISS
+indexing test is explicitly skipped: retrieval is not part of the current app
+and those scripts need their old dependencies and authorized data.
+
+See [MIGRATION.md](MIGRATION.md) for capability sources, required live quality
+checks, and current fine-tuning limitations. Do not run the historical training
+script casually: its main block can start a billed fine-tuning job.
+
+Built with [Streamlit](https://streamlit.io), [OpenAI](https://openai.com), and
+[Travis Barton Consulting](https://www.travisbarton.com).
 

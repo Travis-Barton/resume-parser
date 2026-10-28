@@ -1,0 +1,92 @@
+# Luna / Terra migration
+
+The live error reported on 2026-10-28 explicitly rejected the default
+`ft:gpt-3.5-turbo-0613:personal::7vbb2i7t` as deprecated. The second 0125
+fine-tune and the old name-extraction alias are also retired. This change replaces
+the retired inference routes; it does not recreate their trained weights.
+
+## Serving contract
+
+- Models: `gpt-6-luna` (default) and `gpt-6.1-terra` (explicit alternative).
+- One Responses request extracts name, summary, skills, work roles, and education.
+- Strict JSON schema, `reasoning.effort=none`, `store=false`, 8192 output-token cap;
+  no sampling parameters, tools, hidden model fallback, or fine-tune name call.
+- Three fictional demonstrations in `prompts.py` teach missing-value handling,
+  separate roles, source date precision, contract labels, technical punctuation,
+  and treating instructions embedded in a resume as data.
+- The deterministic adapter feeds the existing five DOCX section names and
+  existing templates/styles. Model-produced document markup is not executed.
+- Both models receive the key entered for that Streamlit session through a
+  dedicated client. No hidden server-secret override or module-global key remains.
+  No request runs until the user chooses Process. No real key is in this branch.
+- Refusal, incomplete output, invalid structure, and API failures stop document
+  generation with sanitized errors. Provider bodies, keys, resumes, and prompts
+  are not printed or saved to diagnostic files.
+
+Official capability sources checked 2026-10-28:
+[Luna](https://developers.openai.com/api/docs/models/gpt-6-luna),
+[Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra),
+[Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs),
+[SDK 3.41.0](https://github.com/openai/openai-python/releases/tag/v3.41.0).
+
+## Validation and rollout gate
+
+Offline tests cover request construction with mocked clients, credential
+isolation, refusal/truncation/error handling, schema bounds, absent facts,
+synthetic few-shot fixtures, DOCX paragraph/style behavior, file reading, and
+Streamlit interaction. These tests do not measure either model's extraction
+accuracy. No billed API calls or production deployment are part of this change.
+
+On 2026-10-28, Python 3.12 ran 61 unittest cases: 60 passed and the one
+historical FAISS-indexing module was explicitly skipped. This includes 10
+mocked Streamlit interaction tests and an actual SDK serialization/response
+parse through an in-memory HTTP transport. `pip check` reported no broken
+requirements. A synthetic DOCX was generated and reopened; visual Word layout
+and live model accuracy remain unverified.
+
+Before merging/deploying, use the intended project through a secure credential
+flow for a small synthetic evaluation of both model options. Use held-out cases
+that are different from the three prompt examples: missing dates/name, multiple
+roles at one employer, overlapping roles, contract vs permanent roles, pending
+degrees, technical version numbers, absent sections, long input, and embedded
+instruction attacks. Check every exported fact against the input, section
+placement, missing-field behavior, name placement, bullet styles, and date
+formatting. Inspect the generated DOCX in a document viewer. Record model ID,
+prompt revision, latency, token usage, and per-case pass/fail without raw resumes
+in logs. Approve quality separately from transport/schema success.
+
+Python 3.12 and the exact direct dependencies in `requirements.txt` are the
+tested local runtime. Select Python 3.12 explicitly for a separate Streamlit
+preview when authorized; `.python-version` alone does not change an existing
+Community Cloud app's runtime. The current production branch/settings stay
+unchanged until reviewed. Avoid rolling back to the deprecated model as a
+recovery strategy; pause processing or revert to a known working serving path.
+
+## Fine-tuning follow-up
+
+Neither Luna nor Terra currently supports fine-tuning. OpenAI's remaining
+self-serve fine-tuning window is short: eligible existing organizations may
+create jobs only until January 6, 2027, and the documented surviving GPT-4.1 /
+GPT-4.1-mini fine-tune bases shut down January 14, 2027. Organizations must also
+meet historical-use eligibility rules. Check eligibility in the actual owning
+organization; historical metadata in the old training script is only a lead.
+[Availability and shutdowns](https://developers.openai.com/api/docs/deprecations),
+[SFT guide](https://developers.openai.com/api/docs/guides/supervised-fine-tuning).
+
+The repo contains a generator, old indexing scripts, and FAISS artifacts, but no
+tracked JSONL training set or paired source/profile directories. No FAISS pickle
+was loaded and no real training example was copied into this change. The old
+generator names two labels `skills`/`experience`, while the app contract uses
+`skills_and_tech`/`professional_experience`; normalize labels during any export.
+Do not run `fine_tuning_data_setup.py` casually: its main block starts a paid
+training job when its old dependencies and credentials are present.
+
+First recover an authorized, de-identified dataset into a private location;
+confirm rights to process applicant information and keep the evaluation split
+separate. The SFT guide requires at least 10 examples and recommends starting
+with roughly 50 well-crafted demonstrations, with evaluation first. Reuse the
+best approved examples for few-shot selection/evaluation even if training is
+not viable. Obtain a current cost estimate from total training tokens, epochs,
+the selected eligible base and current pricing before authorizing any job.
+No current training rate, organization eligibility, or dataset availability is
+asserted here. No training job, credential, or persistent account grant was made.

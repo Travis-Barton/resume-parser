@@ -1,14 +1,7 @@
-pypdf2~=2.10.5
-mock~=4.0.3
-langchain~=0.0.235
-openai~=0.27.8
-python-dotenv~=1.0.0
-streamlit~=1.25.0
-python-docx
-faiss-cpu
-tiktoken~=0.4.0
-pdfminer.six
-docxcompose~=1.4.0
-tqdm~=4.66.1
-transformers~=4.32.1
-textract
+# Tested direct dependencies for the active app (Python 3.12).
+# Historical indexing/training scripts are not app dependencies.
+openai==3.41.0
+streamlit==1.66.1
+python-docx==1.2.0
+docxcompose==1.4.1
+pdfminer.six==20260107
