@@ -56,20 +56,20 @@ GitHub reported no commit statuses, check runs or Actions runs for the original
 PR head `375883b8ad7889f8d4d1a17e7b3cb170266afe08` on 2026-10-29. Local passing
 tests are not a passing GitHub CI result.
 
-### Credential ownership decision before merge
+### Credential ownership
 
 Entered-key mode changes the old default deployment's billing behavior. On
 master, any nonempty key field enabled processing, but choosing the default
 4k fine-tune silently replaced the entered value with the hosted Streamlit
 secret. That input check was not meaningful access control.
 
-This branch deliberately uses the entered key and bills its OpenAI project.
-Confirm whether Dawson should supply his own project key or the host should
-continue funding requests before merging. If hosted operation is intended,
-implement an explicit deployment-controlled mode with a configured server key,
-clear billing notice, appropriate access controls and no irrelevant key field.
-Do not silently fall back between hosted and entered credentials. No hosted
-mode, production secret change or deployment is included in this branch.
+The deployment policy is to use the project key supplied by the person
+processing the resume and bill that key's OpenAI project. The current session-key
+implementation matches that policy. No hosted credential mode or automatic
+fallback is provided, and no production secret change is required by this
+branch. The separate live evaluation still requires credential selection and
+spending approval; choosing this serving policy does not authorize evaluation
+calls or new credentials.
 
 Before merging/deploying, use the intended project through a secure credential
 flow for a small synthetic evaluation of both model options. Use held-out cases
