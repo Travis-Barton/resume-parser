@@ -3,6 +3,7 @@ import copy
 import contextlib
 import io
 import json
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -14,19 +15,23 @@ from prompts import FEW_SHOT_EXAMPLES
 from resume_contract import to_section_results, validate_resume
 
 
+def synthetic_response(model="gpt-6-luna"):
+    return httpx2.Response(200, json={
+        "id": "resp_synthetic", "object": "response", "created_at": 1,
+        "model": model, "status": "completed",
+        "output": [{"id": "msg_synthetic", "type": "message", "role": "assistant",
+            "status": "completed", "content": [{"type": "output_text", "annotations": [],
+                "text": json.dumps(FEW_SHOT_EXAMPLES[0]["result"])}]}],
+    })
+
+
 class ExtractionTests(unittest.TestCase):
     def test_real_sdk_serialization_with_in_memory_transport(self):
         requests = []
 
         def handle(request):
             requests.append(json.loads(request.content))
-            return httpx2.Response(200, json={
-                "id": "resp_synthetic", "object": "response", "created_at": 1,
-                "model": "gpt-6-luna", "status": "completed",
-                "output": [{"id": "msg_synthetic", "type": "message", "role": "assistant",
-                    "status": "completed", "content": [{"type": "output_text", "annotations": [],
-                        "text": json.dumps(FEW_SHOT_EXAMPLES[0]["result"])}]}],
-            })
+            return synthetic_response()
 
         with httpx2.Client(transport=httpx2.MockTransport(handle)) as transport:
             with OpenAI(api_key="SYNTHETIC_ONLY", http_client=transport, max_retries=0) as sdk:
@@ -63,12 +68,63 @@ class ExtractionTests(unittest.TestCase):
                 self.assertNotIn("SYNTHETIC_KEY", json.dumps(call))
 
     def test_own_client_per_credential_without_global_key_or_secret_lookup(self):
-        with patch("llm_class.OpenAI") as factory:
+        first_client, second_client = Mock(), Mock()
+        with patch("llm_class.OpenAI", side_effect=[first_client, second_client]) as factory:
             first = LLMUtils("SYNTHETIC_A", "gpt-6-luna")
             second = LLMUtils("SYNTHETIC_B", "gpt-6.1-terra")
             self.assertEqual(factory.call_args_list[0].kwargs["api_key"], "SYNTHETIC_A")
             self.assertEqual(factory.call_args_list[1].kwargs["api_key"], "SYNTHETIC_B")
             self.assertEqual(factory.call_count, 2)
+            self.assertIs(first.client, first_client)
+            self.assertIs(second.client, second_client)
+            self.assertIsNot(first.client, second.client)
+
+    def test_separate_real_clients_send_separate_authorization_headers(self):
+        headers = {"first": [], "second": []}
+
+        def handler(label):
+            def handle(request):
+                headers[label].append(request.headers["Authorization"])
+                return synthetic_response(json.loads(request.content)["model"])
+            return handle
+
+        with contextlib.ExitStack() as stack:
+            transports = iter([
+                stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handler("first")))),
+                stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handler("second")))),
+            ])
+
+            def sdk_factory(**kwargs):
+                return stack.enter_context(OpenAI(http_client=next(transports), **kwargs))
+
+            with patch("llm_class.OpenAI", side_effect=sdk_factory):
+                first = LLMUtils("SYNTHETIC_FIRST", "gpt-6-luna")
+                second = LLMUtils("SYNTHETIC_SECOND", "gpt-6.1-terra")
+                self.assertIsNot(first.client, second.client)
+                first.extract_resume("SYNTHETIC_FIRST_RESUME")
+                second.extract_resume("SYNTHETIC_SECOND_RESUME")
+                first.extract_resume("SYNTHETIC_FIRST_RESUME_AGAIN")
+
+        self.assertEqual(headers["first"], ["Bearer SYNTHETIC_FIRST"] * 2)
+        self.assertEqual(headers["second"], ["Bearer SYNTHETIC_SECOND"])
+
+    def test_environment_key_cannot_override_explicit_client_key(self):
+        headers = []
+
+        def handle(request):
+            headers.append(request.headers["Authorization"])
+            return synthetic_response()
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "SYNTHETIC_ENVIRONMENT_KEY"}, clear=True):
+            with httpx2.Client(transport=httpx2.MockTransport(handle)) as transport:
+                with contextlib.ExitStack() as clients:
+                    def sdk_factory(**kwargs):
+                        return clients.enter_context(OpenAI(http_client=transport, **kwargs))
+
+                    with patch("llm_class.OpenAI", side_effect=sdk_factory):
+                        LLMUtils("SYNTHETIC_ENTERED_KEY").extract_resume("SYNTHETIC_RESUME")
+
+        self.assertEqual(headers, ["Bearer SYNTHETIC_ENTERED_KEY"])
 
     def test_missing_key_and_retired_model_fail_before_client_construction(self):
         with patch("llm_class.OpenAI") as factory:

@@ -71,6 +71,24 @@ class StreamlitFlowTests(unittest.TestCase):
             app.run()
             llm.assert_called_once()
 
+    def test_hosted_secret_cannot_override_entered_session_key(self):
+        for label, model in MODEL_OPTIONS.items():
+            with self.subTest(model=model), patch("llm_class.LLMUtils") as llm:
+                llm.return_value.extract_resume.return_value = SECTIONS
+                app = AppTest.from_file(str(APP), default_timeout=10)
+                app.secrets["OPENAI_API_KEY"] = "SYNTHETIC_HOSTED_KEY"
+                app.run()
+                app.checkbox[0].check().run()
+                app.text_area[0].input(SYNTHETIC_RESUME).run()
+                self.assertTrue(app.button[0].disabled)
+                llm.assert_not_called()
+                app.selectbox[0].select(label).run()
+                app.text_input[0].input("SYNTHETIC_ENTERED_KEY").run()
+                app.button[0].click().run()
+                self.assertFalse(app.exception)
+                llm.assert_called_once_with(api_key="SYNTHETIC_ENTERED_KEY", model_name=model)
+                self.assertEqual(len(app.get("download_button")), 1)
+
     def test_changed_resume_clears_stale_download_without_new_call(self):
         with patch("llm_class.LLMUtils") as llm:
             llm.return_value.extract_resume.return_value = SECTIONS
