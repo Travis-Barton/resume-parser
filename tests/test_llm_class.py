@@ -41,6 +41,38 @@ class ExtractionTests(unittest.TestCase):
         self.assertFalse(requests[0]["store"])
         self.assertEqual(requests[0]["text"]["format"]["type"], "json_schema")
 
+    def test_app_created_sdk_does_not_retry_provider_503(self):
+        requests = []
+
+        def handle(request):
+            requests.append(request.url.path)
+            return httpx2.Response(503, json={"error": {
+                "code": "synthetic_failure",
+                "message": "KEY_SENTINEL RESUME_SENTINEL",
+            }})
+
+        capture = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), contextlib.ExitStack() as stack:
+            transport = stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handle)))
+
+            def sdk_factory(**kwargs):
+                # Keep the application's retry setting: overriding it here would
+                # mask a regression in the production constructor.
+                return stack.enter_context(OpenAI(
+                    base_url="https://offline.invalid/v1", http_client=transport, **kwargs
+                ))
+
+            with patch("llm_class.OpenAI", side_effect=sdk_factory):
+                with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
+                    with self.assertRaises(ResumeProcessingError) as caught:
+                        LLMUtils("KEY_SENTINEL").extract_resume("RESUME_SENTINEL")
+
+        self.assertEqual(requests, ["/v1/responses"])
+        self.assertEqual(caught.exception.category, "provider")
+        self.assertNotIn("KEY_SENTINEL", str(caught.exception) + capture.getvalue())
+        self.assertNotIn("RESUME_SENTINEL", str(caught.exception) + capture.getvalue())
+        self.assertTrue(caught.exception.__suppress_context__)
+
     def client(self, *, status="completed", output=None, data=None, text=None):
         result = SimpleNamespace(
             status=status, output=[] if output is None else output,
@@ -74,6 +106,7 @@ class ExtractionTests(unittest.TestCase):
             second = LLMUtils("SYNTHETIC_B", "gpt-6.1-terra")
             self.assertEqual(factory.call_args_list[0].kwargs["api_key"], "SYNTHETIC_A")
             self.assertEqual(factory.call_args_list[1].kwargs["api_key"], "SYNTHETIC_B")
+            self.assertTrue(all(call.kwargs["max_retries"] == 0 for call in factory.call_args_list))
             self.assertEqual(factory.call_count, 2)
             self.assertIs(first.client, first_client)
             self.assertIs(second.client, second_client)

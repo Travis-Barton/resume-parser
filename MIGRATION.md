@@ -11,6 +11,8 @@ the retired inference routes; it does not recreate their trained weights.
 - One Responses request extracts name, summary, skills, work roles, and education.
 - Strict JSON schema, `reasoning.effort=none`, `store=false`, 8192 output-token cap;
   no sampling parameters, tools, hidden model fallback, or fine-tune name call.
+- SDK automatic retries are disabled. A failed request requires a deliberate
+  new Process action so repeat attempts remain visible to the user.
 - Three fictional demonstrations in `prompts.py` teach missing-value handling,
   separate roles, source date precision, contract labels, technical punctuation,
   and treating instructions embedded in a resume as data.
@@ -37,13 +39,15 @@ synthetic few-shot fixtures, DOCX paragraph/style behavior, file reading, and
 Streamlit interaction. These tests do not measure either model's extraction
 accuracy. No billed API calls or production deployment are part of this change.
 
-On 2026-10-29, Python 3.12 ran 64 unittest cases: 63 passed and the one
+On 2026-10-30, Python 3.12 ran 65 unittest cases: 64 passed and the one
 historical FAISS-indexing module was explicitly skipped. This includes 11
 mocked Streamlit interaction tests and an actual SDK serialization/response
 parse through an in-memory HTTP transport. Separate real SDK clients preserve
 distinct synthetic Authorization headers across interleaved requests. Synthetic
 environment and Streamlit hosted keys cannot override the entered key, and a
-hosted key alone does not enable processing. `pip check` reported no broken
+hosted key alone does not enable processing. A simulated provider 503 through
+the application's real SDK constructor makes exactly one request and returns
+a sanitized error. `pip check` reported no broken
 requirements.
 
 The fictional Jordan Example DOCX was rendered with LibreOffice 26.2.4 and its

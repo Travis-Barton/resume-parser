@@ -64,7 +64,7 @@ class LLMUtils:
             raise ResumeProcessingError("configuration", "Enter your OpenAI API key before processing.")
         self.model_name = model_name
         self.client = client if client is not None else OpenAI(
-            api_key=api_key.strip(), timeout=60.0, max_retries=1,
+            api_key=api_key.strip(), timeout=60.0, max_retries=0,
         )
 
     def extract_resume(self, resume):
