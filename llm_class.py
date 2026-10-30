@@ -1,88 +1,181 @@
-from langchain.chat_models import ChatOpenAI
-from langchain.vectorstores import FAISS
-from openai import ChatCompletion, Embedding
-import dotenv
+"""Original retrieved-example, per-section extraction with current model choices."""
+from pathlib import Path
+import re
 
-dotenv.load_dotenv()
-import os
-import openai
-from utils import file_reader, parse_aim_resumes
+import numpy as np
+import tiktoken
+from openai import OpenAI
 
-openai.api_key = os.environ.get('OPENAI_API_KEY')
+SUPPORTED_MODELS = ("gpt-6-luna", "gpt-6.1-terra")
+MODEL_OPTIONS = {
+    "gpt-6-luna (original few-shot)": "gpt-6-luna",
+    "gpt-6.1-terra (original few-shot)": "gpt-6.1-terra",
+    "fine-tuned-gpt-3.5-turbo-4k": "fine-tuned-gpt-3.5-turbo-4k",
+    "fine_tuned_gpt-3.5-turbo-16k-no-dot": "fine_tuned_gpt-3.5-turbo-16k-no-dot",
+    "gpt-3.5-turbo-16k": "gpt-3.5-turbo-16k",
+}
+SECTIONS = ("name", "summary", "skills_and_tech", "professional_experience", "education")
+MAX_RESUME_CHARACTERS = 100_000
+MAX_OUTPUT_TOKENS = 8192
+INDEX_PATH = Path(__file__).resolve().parent / "vectorstore2"
+
+
+class ResumeProcessingError(Exception):
+    """Safe UI error; never contains provider response bodies."""
+    def __init__(self, category, message, request_id=None):
+        self.category = category
+        self.request_id = request_id if (
+            isinstance(request_id, str)
+            and re.fullmatch(r"req_[A-Za-z0-9_-]{1,100}", request_id)
+        ) else None
+        suffix = f" Reference: {self.request_id}" if self.request_id else ""
+        super().__init__(message + suffix)
+
+
+def _field(value, name, default=None):
+    return value.get(name, default) if isinstance(value, dict) else getattr(value, name, default)
+
+
+def _safe_provider_error(exc):
+    status = getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+    body = getattr(exc, "body", None)
+    if not isinstance(code, str) and isinstance(body, dict):
+        error = body.get("error", body)
+        code = error.get("code") if isinstance(error, dict) else None
+    request_id = getattr(exc, "request_id", None)
+    if status == 401 or code == "invalid_api_key":
+        category, message = "authentication", "OpenAI could not authenticate this API key. Check the selected key."
+    elif status in (403, 404) or code in ("model_not_found", "model_deprecated"):
+        category, message = "model_access", "The selected model is unavailable or this project does not have access."
+    elif code in ("insufficient_quota", "billing_hard_limit_reached"):
+        category, message = "quota", "This OpenAI project has insufficient quota or has reached its billing limit."
+    elif status == 429:
+        category, message = "rate_limit", "OpenAI rate-limited the request. Wait before trying again."
+    elif type(exc).__name__ == "APITimeoutError":
+        category, message = "timeout", "The extraction request timed out. Please try again later."
+    elif type(exc).__name__ == "APIConnectionError":
+        category, message = "connection", "The app could not connect to OpenAI. Please try again later."
+    else:
+        category, message = "provider", "OpenAI could not complete this extraction. Please try again later."
+    return ResumeProcessingError(category, message, request_id)
+
+
+class LegacyIndexEmbeddings:
+    """Match LangChain 0.0.235's ada-002 query embedding without its old SDK/retries."""
+    def __init__(self, client):
+        self.client = client
+
+    def embed_query(self, text):
+        encoding = tiktoken.get_encoding("cl100k_base")
+        tokens = encoding.encode(text, disallowed_special=())
+        if not tokens:
+            raise ResumeProcessingError("input", "The resume is empty. Please provide readable text.")
+        chunks = [tokens[i:i + 8191] for i in range(0, len(tokens), 8191)]
+        response = self.client.embeddings.create(
+            model="text-embedding-ada-002", input=chunks, encoding_format="float",
+        )
+        data = sorted(_field(response, "data", []), key=lambda row: _field(row, "index", -1))
+        if len(data) != len(chunks) or [_field(row, "index") for row in data] != list(range(len(chunks))):
+            raise ResumeProcessingError("examples", "The example search returned an invalid embedding.")
+        vectors = np.asarray([_field(row, "embedding") for row in data], dtype=float)
+        if vectors.shape != (len(chunks), 1536) or not np.isfinite(vectors).all():
+            raise ResumeProcessingError("examples", "The example search returned an invalid embedding.")
+        average = np.average(vectors, axis=0, weights=[len(chunk) for chunk in chunks])
+        norm = np.linalg.norm(average)
+        if not np.isfinite(norm) or norm == 0:
+            raise ResumeProcessingError("examples", "The example search returned an invalid embedding.")
+        return (average / norm).tolist()
 
 
 class LLMUtils:
-    def __init__(self, model: ChatCompletion, embedding_source: FAISS, model_names: str = 'gpt-3.5-turbo'):
-        self.model = model
+    def __init__(self, api_key, model_name="gpt-6-luna", *, client=None, embedding_source=None):
+        if model_name not in SUPPORTED_MODELS:
+            raise ResumeProcessingError(
+                "configuration", "This legacy model is unavailable. Select Luna or Terra to use the original few-shot method.",
+            )
+        if not isinstance(api_key, str) or not api_key.strip():
+            raise ResumeProcessingError("configuration", "Enter your OpenAI API key before processing.")
+        self.model_name = model_name
+        self.client = client if client is not None else OpenAI(
+            api_key=api_key.strip(), base_url="https://api.openai.com/v1",
+            timeout=60.0, max_retries=0,
+        )
         self.embedding_source = embedding_source
-        self.similar_resumes = None  # placeholder until find_similar resumes runs
-        self.model_names = model_names
+        self.similar_resumes = None
+        self._retrieved_resume = None
 
-    def find_similar_resumes(self, resume: str):
-        """
-        Use the FAISS vector db to find the resumes most similar and return the metadata of those 3 mot similar
-        """
-        _ = self.embedding_source.search(resume, k=100, search_type='similarity')
-        _ = [i.metadata for i in _]
+    def find_similar_resumes(self, resume):
+        if self._retrieved_resume == resume:
+            return
+        if self.embedding_source is None:
+            try:
+                from langchain.vectorstores import FAISS
+                # These are the unchanged, repository-owned historical examples.
+                # Never allow a user-uploaded path or index to reach this loader.
+                self.embedding_source = FAISS.load_local(
+                    str(INDEX_PATH), embeddings=LegacyIndexEmbeddings(self.client),
+                )
+            except Exception:
+                raise ResumeProcessingError(
+                    "examples", "The saved resume examples could not be loaded. Please contact the app maintainer.",
+                ) from None
+        try:
+            matches = self.embedding_source.search(resume, k=100, search_type="similarity")
+            self.similar_resumes = [item.metadata for item in matches]
+            self._retrieved_resume = resume
+        except ResumeProcessingError:
+            raise
+        except Exception as exc:
+            raise _safe_provider_error(exc) from None
 
-        # This is a placeholder since we don't have a way to retrieve actual resumes from their ids.
-        # You should replace this with appropriate retrieval.
-        self.similar_resumes = _
-
-    def format_resume_examples(self, section: str) -> str:
-        """
-        Using only the 3 most similar resumes, format the resumes so that they create a string that looks like this:
-        """
-        # Handle name section differently - it doesn't need examples
-        if section == 'name':
+    def format_resume_examples(self, section):
+        if section == "name":
             return ""
-            
-        relevant_resumes = [i for i in self.similar_resumes if
-                            (i[section] != '') and
-                            (i[section] != 'None') and
-                            (i[section])]
-        if 'gpt-4' in self.model_names:
-            relevant_resumes = relevant_resumes[:1]
-        elif 'gpt-3.5-turbo-16k' in self.model_names:
-            relevant_resumes = relevant_resumes[:2]
-        else:
-            relevant_resumes = relevant_resumes[:2]
+        relevant = [item for item in self.similar_resumes
+                    if isinstance(item.get(section), str) and item[section] not in ("", "None")]
         examples = []
-        for idx, resume in enumerate(relevant_resumes):
-            example = f"""
+        for idx, example in enumerate(relevant[:2]):
+            examples.append(f"""
 Example {idx + 1}:
 
 ```resume
-{resume['resume']}
+{example['resume']}
 ```
 ```{section}
-{resume[section]}
+{example[section]}
 ```
-"""
-            examples.append(example)
-        return '\n'.join(examples) + '\nThese are examples, never include them in the extracted section. Also never use tick marks in the extracted section.'
+""")
+        return "\n".join(examples) + "\nThese are examples, never include them in the extracted section. Also never use tick marks in the extracted section."
 
-    def extract_section(self, resume: str, section: str):
-        """
-        1. find similar examples for the section with FAISS
-        2. prep the prompt with placeholders for examples
-        3. format the examples into a string
-        4. append the examples into the same string
-        """
-        # Handle name extraction specially
-        if section == 'name':
-            return self.extract_name(resume)
-            
-        if self.model_names == 'fine-tuned-gpt-3.5-turbo-4k' or self.model_names == 'fine_tuned_gpt-3.5-turbo-16k-no-dot':
-            return self.fine_tuned_extract_section(resume, section, self.model_names)
+    @staticmethod
+    def _check_input(resume):
+        if not isinstance(resume, str) or not resume.strip():
+            raise ResumeProcessingError("input", "The resume is empty. Please provide readable text.")
+        if len(resume) > MAX_RESUME_CHARACTERS:
+            raise ResumeProcessingError("input", "The resume is too large. Limit the input to 100,000 characters.")
+
+    def extract_resume(self, resume):
+        self._check_input(resume)
+        # Retrieve once for this resume, rather than repeating the same embedding
+        # request for each section. Ranking and section-specific top-two are unchanged.
         self.find_similar_resumes(resume)
-        self.similar_resumes = self.format_resume_examples(section)
+        return {section: self.extract_section(resume, section) for section in SECTIONS}
+
+    def extract_section(self, resume, section):
+        self._check_input(resume)
+        if section not in SECTIONS:
+            raise ResumeProcessingError("configuration", "Select a supported resume section.")
+        if section == "name":
+            return self.extract_name(resume)
+        self.find_similar_resumes(resume)
+        examples = self.format_resume_examples(section)
         system_prompt = f"""
-You are a resume parser, your job is to extract information from the resume and fill a pre-determined section based on that information. 
+You are a resume parser, your job is to extract information from the resume and fill a pre-determined section based on that information.
 This time, that predetermined section is the {section} section.
 
 Here are some examples of similar resumes being parsed for the {section} section.
-{self.similar_resumes}
+{examples}
 
 (Do not include these examples in the extracted section. They are only for your reference. I repeat, do not include these examples in the extracted section.)
 (Again, the above are for formatting reference ONLY do not include the above in the final answer)
@@ -117,111 +210,38 @@ Here is the resume candidates resume. Use ONLY it to generate the extracted sect
 {resume}
 ```
 """
-        with open('temp_prompt.txt', 'w') as f:
-            f.write(system_prompt + '\n\n' + human_prompt)
-        # gracefuly raise when the prompt is too long or the response was rejected to hitting the hard limit for billing
-        try:
-            response = self.model.create(
-                model=self.model_names,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": human_prompt}
-                ]
-            )
-        except openai.error.OpenAIError as e:
-            if 'Request payload size exceeds the limit' in str(e):
-                # Error due to prompt being too long
-                raise ValueError("The prompt is too long! Try the gpt-3.5-turbo-16k model instead!") from e
-            elif 'Your request was rejected because you have hit the hard limit for billing' in str(e):
-                # Error due to hitting the hard billing limit
-                raise ValueError("Hit the hard billing limit! Please contact your billing administrator.") from e
-            else:
-                # Re-raise the original error if it's another type
-                raise
-        print(system_prompt)
-        return response['choices'][0]['message']['content']  # return the text not the completion object
+        return self._chat([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": human_prompt},
+        ])
 
-    def extract_name(self, resume: str):
-        """
-        Extract the applicant's name from the resume using a simple prompt
-        """
-        try:
-            response = self.model.create(
-                model='gpt-3.5-turbo',
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a resume parser. Extract only the applicant's full name from the resume. Return only the name, nothing else. If you cannot find a clear name, return 'Name Not Found'."
-                    },
-                    {
-                        "role": "user", 
-                        "content": f"Extract the applicant's name from this resume:\n\n{resume}"
-                    }
-                ],
-                temperature=0.0,
-                max_tokens=50
-            )
-            return response['choices'][0]['message']['content'].strip()
-        except Exception as e:
-            return "Name Not Found"
+    def extract_name(self, resume):
+        self._check_input(resume)
+        return self._chat([
+            {"role": "system", "content": "You are a resume parser. Extract only the applicant's full name from the resume. Return only the name, nothing else. If you cannot find a clear name, return 'Name Not Found'."},
+            {"role": "user", "content": f"Extract the applicant's name from this resume:\n\n{resume}"},
+        ], max_tokens=128)
 
-    @staticmethod
-    def fine_tuned_extract_section(resume, section, model='fine-tuned-gpt-3.5-turbo-4k'):
-        # Handle name extraction for fine-tuned models
-        if section == 'name':
-            try:
-                completion = openai.ChatCompletion.create(
-                    model='gpt-3.5-turbo',
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a resume parser. Extract only the applicant's full name from the resume. Return only the name, nothing else. If you cannot find a clear name, return 'Name Not Found'."
-                        },
-                        {
-                            "role": "user",
-                            "content": f"Extract the applicant's name from this resume:\n\n{resume}"
-                        }
-                    ],
-                    temperature=0.0,
-                    max_tokens=50
-                )
-                return completion['choices'][0]['message']['content'].strip()
-            except Exception as e:
-                return "Name Not Found"
-        
-        # "ft:gpt-3.5-turbo-0613:open-humans::7uQBLVSG"
-        model_translations = {
-            'fine_tuned_gpt-3.5-turbo-16k-no-dot': 'ft:gpt-3.5-turbo-0125:personal::95Pk7O79',
-            'fine-tuned-gpt-3.5-turbo-4k': 'ft:gpt-3.5-turbo-0613:personal::7vbb2i7t'
-        }
-        model = model_translations[model]
-        system_prompt = f"You are a resume parser. Extract the {section} section"
+    def _chat(self, messages, max_tokens=MAX_OUTPUT_TOKENS):
         try:
-            completion = openai.ChatCompletion.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": resume}
-                ],
-                temperature=0.0,
+            response = self.client.chat.completions.create(
+                model=self.model_name, messages=messages, reasoning_effort="none",
+                max_completion_tokens=max_tokens, store=False,
             )
-        except openai.error.OpenAIError as e:
-            if 'Request payload size exceeds the limit' in str(e):
-                # Error due to prompt being too long
-                raise ValueError("The prompt is too long! Try the gpt-3.5-turbo-16k model instead!") from e
-            elif 'Your request was rejected because you have hit the hard limit for billing' in str(e):
-                # Error due to hitting the hard billing limit
-                raise ValueError("Hit the hard billing limit! Please contact your billing administrator.") from e
-            else:
-                # Re-raise the original error if it's another type
-                raise Exception(f"An error occurred: {e}")
-
-        return completion['choices'][0]['message']['content']
+        except Exception as exc:
+            raise _safe_provider_error(exc) from None
+        request_id = _field(response, "_request_id")
+        choices = _field(response, "choices", [])
+        choice = choices[0] if choices else None
+        message = _field(choice, "message")
+        if _field(message, "refusal"):
+            raise ResumeProcessingError("refusal", "The model declined this extraction. No document was generated.", request_id)
+        if _field(choice, "finish_reason") != "stop":
+            raise ResumeProcessingError("incomplete", "The extraction did not finish. No partial document was generated.", request_id)
+        content = _field(message, "content")
+        if not isinstance(content, str) or len(content) > MAX_RESUME_CHARACTERS or any(
+            not (c in "\t\n\r" or 0x20 <= ord(c) <= 0xD7FF or 0xE000 <= ord(c) <= 0xFFFD or 0x10000 <= ord(c) <= 0x10FFFF)
+            for c in content
+        ):
+            raise ResumeProcessingError("invalid_output", "The model returned invalid section text. No document was generated.", request_id)
+        return content.strip()

@@ -1,75 +1,87 @@
-import os
-from docx import Document
-from pdfminer.high_level import extract_text
+"""Local text extraction without temporary applicant files or payload logging."""
+
+from io import BytesIO
+from pathlib import Path
 import re
-import textract
-import tempfile
-import io
+
+from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+from pdfminer.high_level import extract_text
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
+class ResumeFileError(ValueError):
+    """Safe, fixed user-facing file error; never carries parser exception text."""
+
+
+def _read_bytes(file_object):
+    try:
+        file_object.seek(0)
+        content = file_object.read(MAX_UPLOAD_BYTES + 1)
+    except Exception:
+        raise ResumeFileError("The uploaded file could not be read.") from None
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    if not isinstance(content, bytes):
+        raise ResumeFileError("The uploaded file could not be read.")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise ResumeFileError("The uploaded file is too large. Use a file smaller than 10 MB.")
+    return content
+
+
+def _docx_text(content):
+    document = Document(BytesIO(content))
+    parts = []
+    seen_headers = set()
+    for section in document.sections:
+        header = section.header
+        if header.part not in seen_headers:
+            seen_headers.add(header.part)
+            parts.extend(p.text for p in header.paragraphs if p.text.strip())
+    # Preserve paragraph/table order; resumes often place names and skills in tables.
+    for child in document.element.body:
+        if child.tag.endswith('}p'):
+            parts.append(Paragraph(child, document).text)
+        elif child.tag.endswith('}tbl'):
+            table = Table(child, document)
+            seen_cells = set()
+            for row in table.rows:
+                cells = []
+                for cell in row.cells:
+                    if cell._tc not in seen_cells:
+                        seen_cells.add(cell._tc)
+                        if cell.text.strip():
+                            cells.append(cell.text)
+                if cells:
+                    parts.append("\t".join(cells))
+    return "\n".join(parts)
 
 
 def file_reader(file_object) -> str:
-    """
-    A general file reader. doc, docx, pdf, and txt should be taken in and the string should be returned.
-    """
-    # Extract file extension
-    file_ext = os.path.splitext(file_object.name)[1]
-
+    """Read DOCX, text-based PDF, or UTF-8 TXT as Unicode text."""
+    extension = Path(getattr(file_object, "name", "")).suffix.lower()
+    if extension == ".doc":
+        raise ResumeFileError("Legacy .doc files are not supported. Save as .docx or PDF and try again.")
+    if extension not in {".docx", ".pdf", ".txt"}:
+        raise ResumeFileError("Use a DOCX, PDF, or UTF-8 TXT file.")
+    content = _read_bytes(file_object)
     try:
-        # Read .txt files
-        if file_ext == '.txt':
-            content = file_object.read()
-            return content
-
-        # Read .docx files
-        elif file_ext == '.docx' or file_ext == '.doc':
-            doc = Document(file_object)
-            fullText = []
-            for para in doc.paragraphs:
-                fullText.append(para.text)
-            return '\n'.join(fullText)
-
-        # Read .pdf files
-        elif file_ext == '.pdf':
-            with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as temp:
-                if isinstance(file_object, io.BufferedReader):
-                    temp.write(file_object.read())
-                else:
-                    temp.write(file_object.getvalue())
-                temp.flush()
-                content = extract_text(temp.name)
-            return content
-
-        else:
-            raise NotImplementedError(f"Unsupported file extension: {file_ext}")
-    except Exception as e:
-        # if value error
-        if 'application/vnd.openxmlformats-officedocument.themeManager+xm' in str(e):
-            raise ValueError('This file is a pre-2007 word-doc. Please convert to a .docx or .pdf file and try again.')
-        else:
-            raise e
-
-# Example usage:
-# with open('sample.txt', 'r') as file:
-#     print(file_reader(file))
+        if extension == ".txt":
+            return content.decode("utf-8-sig")
+        if extension == ".docx":
+            return _docx_text(content)
+        return extract_text(BytesIO(content))
+    except UnicodeDecodeError:
+        raise ResumeFileError("The text file is not UTF-8. Save it as UTF-8 and try again.") from None
+    except Exception:
+        raise ResumeFileError("The file could not be parsed. Try another DOCX, text-based PDF, or UTF-8 TXT file.") from None
 
 
 def extract_text_from_uploaded_file(uploaded_file):
-    """
-    Extract text from an uploaded file using textract.
-
-    Parameters:
-    - uploaded_file: An UploadedFile object from Streamlit's file_uploader
-
-    Returns:
-    Extracted text as a string.
-    """
-    # We'll infer the file extension from the uploaded file's name for textract
-    extension = "." + uploaded_file.name.split('.')[-1]
-
-    with tempfile.NamedTemporaryFile(delete=True, suffix=extension) as temp:
-        temp.write(uploaded_file.getvalue())
-        temp.flush()
-        return textract.process(temp.name).decode('utf-8')
+    """Compatibility wrapper used by earlier callers."""
+    return file_reader(uploaded_file)
 
 
 def parse_aim_resumes(resume: str):
@@ -95,7 +107,3 @@ def parse_aim_resumes(resume: str):
 
     return (sections['summary'], sections['skills_and_tech'], sections['professional_experience'],
             sections['education'], sections['certifications'], sections['awards'])
-
-if __name__ == '__main__':
-    with open('/Users/travisbarton/PycharmProjects/resume_translator/tests/Travis_Barton_Resume.pdf', 'rb') as file:
-        print(file_reader(file))
