@@ -17,6 +17,38 @@ SECTION_TEMPLATES = {
 SECTION_ORDER = tuple(SECTION_TEMPLATES)
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 
+_SECTION_HEADERS = {
+    "summary": {"summary"},
+    "skills_and_tech": {"skills_and_tech", "skills and technology", "skills and technologies"},
+    "professional_experience": {"professional_experience", "professional experience"},
+    "education": {"education"},
+}
+
+
+def content_markup(content, section):
+    """Clean the historical per-section response markup before Word styling.
+
+    Word supplies section headings and bullets. Only standalone headings and
+    line-leading list markers are removed; prose mentioning those words stays.
+    """
+    lines = []
+    for line in content.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stripped = line.strip()
+        if re.fullmatch(r"```(?:[ \t]*[A-Za-z0-9_-]+)?", stripped):
+            continue
+        heading = stripped.strip("#*`: ").casefold()
+        if heading in _SECTION_HEADERS.get(section, set()) or stripped == ":":
+            continue
+        if section == "professional_experience" and heading in {
+            "education", "skills", "skills summary", "skills and technology", "skills and technologies"
+        }:
+            break
+        line = line.replace("`", "")
+        if section in {"skills_and_tech", "professional_experience"}:
+            line = re.sub(r"^[ \t]*(?:\u2022[ \t]*|[*-][ \t]+)", "", line)
+        lines.append(line)
+    return "\n".join(lines).strip("\r\n")
+
 
 def _paragraphs(container):
     yield from container.paragraphs
@@ -44,8 +76,8 @@ def replace_text_in_paragraph(paragraph, key, value):
 
 
 def format_professional_experience(content, document):
-    # The contract reserves two header slots per job. An absent header is a tab,
-    # so preserve whitespace until after classifying the line's position.
+    # The historical prompt uses two job header lines before the bullet text.
+    # Preserve blank header slots until after classifying each line's position.
     for job in content.strip("\r\n").split("\n\n"):
         if not job.strip():
             continue
@@ -82,7 +114,7 @@ def render_resume_docx(section_results, template_dir=None):
     composer = Composer(master)
     for key, filename in SECTION_TEMPLATES.items():
         document = Document(templates / filename)
-        content = section_results[key]
+        content = content_markup(section_results[key], key)
         if key == "professional_experience":
             format_professional_experience(content, document)
         elif key == "skills_and_tech":

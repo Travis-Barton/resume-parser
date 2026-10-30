@@ -7,7 +7,7 @@ import unittest
 
 from docx import Document
 
-from document_renderer import TEMPLATE_DIR, render_resume_docx, replace_text_in_paragraph
+from document_renderer import TEMPLATE_DIR, content_markup, render_resume_docx, replace_text_in_paragraph
 
 
 def sections(**overrides):
@@ -66,6 +66,35 @@ class DocumentFormattingTests(unittest.TestCase):
         value = sections(summary="Created education tools; skills_and_tech is a source field. Uses C++ and .NET.")
         doc = Document(BytesIO(render_resume_docx(value)))
         self.assertIn(value["summary"], [p.text for p in doc.paragraphs])
+
+    def test_legacy_section_headers_fences_and_list_markers_are_cleaned(self):
+        value = sections(
+            summary="```summary\nSUMMARY\nSoftware engineer.\n```",
+            skills_and_tech="``` skills_and_tech\nSKILLS AND TECHNOLOGIES\n• Python\n- SQL\n* C++\n```",
+            professional_experience=(
+                "```professional_experience\nPROFESSIONAL EXPERIENCE\n"
+                "Example Co, Remote\t2020-2024\nSoftware Engineer\n• Built data pipelines\n- Reviewed releases\n```"
+            ),
+            education="```education\neducation\nBSc Computer Science, Example University\n```",
+        )
+        doc = Document(BytesIO(render_resume_docx(value)))
+        texts = [p.text for p in doc.paragraphs]
+        joined = "\n".join(texts)
+        self.assertNotIn("```", joined)
+        for header in ("SUMMARY", "SKILLS AND TECHNOLOGIES", "PROFESSIONAL EXPERIENCE", "EDUCATION"):
+            self.assertEqual(sum(p.strip() == header for p in texts), 1)
+        by_text = {p.text: p for p in doc.paragraphs}
+        for bullet in ("Python", "SQL", "C++", "Built data pipelines", "Reviewed releases"):
+            self.assertEqual(by_text[bullet].style.name, "List Bullet 2")
+
+    def test_experience_cleanup_stops_at_leaked_section_heading(self):
+        content = "Example Co\nEngineer\nBuilt tools\n\nEducation\nSHOULD_NOT_EXPORT"
+        self.assertEqual(content_markup(content, "professional_experience"), "Example Co\nEngineer\nBuilt tools")
+
+    def test_cleanup_preserves_domain_words_and_tabs_in_job_header(self):
+        content = "Education Labs, Remote\t2020-2024\nEngineer\nBuilt Skills Summary reporting"
+        self.assertEqual(content_markup(content, "professional_experience"), content)
+        self.assertEqual(content_markup("*nix\n.NET\nC++", "skills_and_tech"), "*nix\n.NET\nC++")
 
     def test_template_tokens_split_across_runs_keep_neighbor_text(self):
         doc = Document()

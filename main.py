@@ -12,19 +12,19 @@ def clear_result():
         st.session_state.pop(key, None)
 
 
-st.title("AIM Resume Processor")
-st.caption(
-    "Luna and Terra use example-guided extraction. These are new model options, "
-    "not the retired fine-tuned models. Review the extracted facts before sharing."
-)
-
 with st.sidebar:
-    model_label = st.selectbox("Model", list(MODEL_OPTIONS), on_change=clear_result)
+    model_label = st.selectbox("Select the right model", list(MODEL_OPTIONS), on_change=clear_result)
+    if MODEL_OPTIONS[model_label] in {
+        "fine-tuned-gpt-3.5-turbo-4k", "fine_tuned_gpt-3.5-turbo-16k-no-dot", "gpt-3.5-turbo-16k"
+    }:
+        st.warning("This legacy model is unavailable. Select Luna or Terra.")
     api_key = st.text_input(
-        "OpenAI API key", type="password", on_change=clear_result,
+        "Enter your OpenAI API key", type="password", on_change=clear_result,
         help="This session uses the key you enter. Your OpenAI project is billed for processing.",
     )
     st.caption("Processing starts only when you select Process resume.")
+
+st.title("AIM Resume Processor")
 
 paste_mode = st.checkbox("Paste Mode", value=False, on_change=clear_result)
 if paste_mode:
@@ -36,7 +36,7 @@ else:
     )
 
 if not api_key.strip():
-    st.info("Enter your OpenAI API key in the sidebar to process a resume.")
+    st.markdown("__Please enter your OpenAI API key in the sidebar__")
 
 if st.button("Process resume", disabled=not api_key.strip() or not source):
     clear_result()
@@ -74,16 +74,28 @@ if "resume_sections" in st.session_state:
     if not sections["name"].strip():
         st.warning("No applicant name was found. Check the source before sharing the document.")
     for section in ("name", *SECTION_ORDER):
-        with st.expander(f"Extracted {section.replace('_', ' ').upper()}"):
-            st.text(sections[section] or "No information provided in the source.")
+        with st.expander(f"Extracted {section.replace('_', ' ').upper()}", expanded=False):
+            st.markdown(f"# {section.replace('_', ' ').upper()}")
+            st.text(sections[section])
+    with st.sidebar:
+        st.download_button(
+            label="Download DOCX", data=st.session_state["resume_docx"],
+            file_name="consolidated.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
     st.download_button(
         label="Download DOCX", data=st.session_state["resume_docx"],
         file_name="consolidated.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        key="download_button2",
     )
     st.button("Clear result", on_click=clear_result)
 
 with st.sidebar:
     st.markdown("---")
-    st.markdown("[Report an issue](https://github.com/Travis-Barton/resume-parser/issues)")
+    st.markdown("Whats new?\n1. Luna and Terra model options.\n2. Process once, download from either location.")
+    st.markdown(
+        "Something broken? [File an issue](https://github.com/Travis-Barton/resume-parser/issues) "
+        "or [reach out to me by email](mailto:me@travisbarton.com?subject=Resume%20Parser)."
+    )
     st.markdown("_Made by [Travis Barton Consulting](https://www.travisbarton.com)_")

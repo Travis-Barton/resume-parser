@@ -1,7 +1,14 @@
-# Tested direct dependencies for the active app (Python 3.12).
-# Historical indexing/training scripts are not app dependencies.
+# Tested direct dependencies for the active app (Python 3.10).
+# Historical index rebuilding/training scripts need separate migration.
 openai==3.41.0
-streamlit==1.66.1
+streamlit==1.25.0
+langchain==0.0.235
+pydantic==1.10.26
+numpy==1.26.4
+faiss-cpu==1.7.4
+tiktoken==0.4.0
+python-dotenv==1.0.0
 python-docx==1.2.0
 docxcompose==1.4.1
 pdfminer.six==20260107
+async-timeout==4.0.3; python_version < "3.11"

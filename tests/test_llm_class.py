@@ -1,5 +1,4 @@
-"""Offline request, credential-isolation, and sanitized-error regressions."""
-import copy
+"""Synthetic-only tests for the original retrieved-example extraction method."""
 import contextlib
 import io
 import json
@@ -9,238 +8,258 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 import httpx2
 from openai import OpenAI
-
-from llm_class import LLMUtils, MODEL_OPTIONS, ResumeProcessingError, MAX_RESUME_CHARACTERS
-from prompts import FEW_SHOT_EXAMPLES
-from resume_contract import to_section_results, validate_resume
+from llm_class import (INDEX_PATH, LLMUtils, MAX_RESUME_CHARACTERS, MODEL_OPTIONS,
+                       SECTIONS, SUPPORTED_MODELS, ResumeProcessingError)
 
 
-def synthetic_response(model="gpt-6-luna"):
-    return httpx2.Response(200, json={
-        "id": "resp_synthetic", "object": "response", "created_at": 1,
-        "model": model, "status": "completed",
-        "output": [{"id": "msg_synthetic", "type": "message", "role": "assistant",
-            "status": "completed", "content": [{"type": "output_text", "annotations": [],
-                "text": json.dumps(FEW_SHOT_EXAMPLES[0]["result"])}]}],
-    })
+def example(label, **overrides):
+    metadata = {"resume": f"SYNTHETIC_SOURCE_{label}"}
+    metadata.update({s: f"SYNTHETIC_{s.upper()}_{label}" for s in SECTIONS if s != "name"})
+    metadata.update(overrides)
+    return SimpleNamespace(metadata=metadata)
+
+
+def source(*documents):
+    return SimpleNamespace(search=Mock(return_value=list(documents) or [example("ONE"), example("TWO")]))
+
+
+def fake_client(content="SYNTHETIC_SECTION", *, finish_reason="stop", refusal=None):
+    response = SimpleNamespace(choices=[SimpleNamespace(finish_reason=finish_reason,
+        message=SimpleNamespace(content=content, refusal=refusal))], _request_id="req_synthetic")
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=Mock(return_value=response))))
+
+
+def synthetic_chat_response(model="gpt-6-luna"):
+    return httpx2.Response(200, json={"id": "chatcmpl_synthetic", "object": "chat.completion",
+        "created": 1, "model": model, "choices": [{"index": 0, "finish_reason": "stop",
+        "message": {"role": "assistant", "content": "SYNTHETIC_SECTION"}}]})
 
 
 class ExtractionTests(unittest.TestCase):
-    def test_real_sdk_serialization_with_in_memory_transport(self):
-        requests = []
+    def test_picker_extends_legacy_choices_with_supported_models(self):
+        self.assertEqual(set(SUPPORTED_MODELS), {"gpt-6-luna", "gpt-6.1-terra"})
+        self.assertTrue(set(SUPPORTED_MODELS).issubset(MODEL_OPTIONS.values()))
+        for legacy in ("fine-tuned-gpt-3.5-turbo-4k", "fine_tuned_gpt-3.5-turbo-16k-no-dot", "gpt-3.5-turbo-16k"):
+            self.assertIn(legacy, MODEL_OPTIONS)
 
-        def handle(request):
-            requests.append(json.loads(request.content))
-            return synthetic_response()
-
-        with httpx2.Client(transport=httpx2.MockTransport(handle)) as transport:
-            with OpenAI(api_key="SYNTHETIC_ONLY", http_client=transport, max_retries=0) as sdk:
-                sections = LLMUtils("SYNTHETIC_ONLY", client=sdk).extract_resume("SYNTHETIC_RESUME")
-        self.assertEqual(sections["name"], "Jordan Example")
-        self.assertEqual(len(requests), 1)
-        self.assertFalse(requests[0]["store"])
-        self.assertEqual(requests[0]["text"]["format"]["type"], "json_schema")
-
-    def test_app_created_sdk_does_not_retry_provider_503(self):
-        requests = []
-
-        def handle(request):
-            requests.append(request.url.path)
-            return httpx2.Response(503, json={"error": {
-                "code": "synthetic_failure",
-                "message": "KEY_SENTINEL RESUME_SENTINEL",
-            }})
-
-        capture = io.StringIO()
-        with patch.dict(os.environ, {}, clear=True), contextlib.ExitStack() as stack:
-            transport = stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handle)))
-
-            def sdk_factory(**kwargs):
-                # Keep the application's retry setting: overriding it here would
-                # mask a regression in the production constructor.
-                return stack.enter_context(OpenAI(
-                    base_url="https://offline.invalid/v1", http_client=transport, **kwargs
-                ))
-
-            with patch("llm_class.OpenAI", side_effect=sdk_factory):
-                with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
-                    with self.assertRaises(ResumeProcessingError) as caught:
-                        LLMUtils("KEY_SENTINEL").extract_resume("RESUME_SENTINEL")
-
-        self.assertEqual(requests, ["/v1/responses"])
-        self.assertEqual(caught.exception.category, "provider")
-        self.assertNotIn("KEY_SENTINEL", str(caught.exception) + capture.getvalue())
-        self.assertNotIn("RESUME_SENTINEL", str(caught.exception) + capture.getvalue())
-        self.assertTrue(caught.exception.__suppress_context__)
-
-    def client(self, *, status="completed", output=None, data=None, text=None):
-        result = SimpleNamespace(
-            status=status, output=[] if output is None else output,
-            output_text=text if text is not None else json.dumps(
-                FEW_SHOT_EXAMPLES[0]["result"] if data is None else data
-            ),
-            _request_id="req_synthetic",
-        )
-        return SimpleNamespace(responses=SimpleNamespace(create=Mock(return_value=result)))
-
-    def test_each_supported_model_uses_strict_nonstored_response_and_all_examples(self):
-        for model in MODEL_OPTIONS.values():
+    def test_each_model_extracts_five_raw_sections_with_one_retrieval(self):
+        for model in SUPPORTED_MODELS:
             with self.subTest(model=model):
-                client = self.client()
-                result = LLMUtils("SYNTHETIC_KEY", model, client=client).extract_resume("SYNTHETIC_APPLICANT")
-                self.assertEqual(result, to_section_results(FEW_SHOT_EXAMPLES[0]["result"]))
-                call = client.responses.create.call_args.kwargs
-                self.assertEqual(call["model"], model)
-                self.assertEqual(call["reasoning"], {"effort": "none"})
-                self.assertFalse(call["store"])
-                self.assertTrue(call["text"]["format"]["strict"])
-                self.assertEqual(call["input"][-1]["content"], "SYNTHETIC_APPLICANT")
-                self.assertEqual(len(call["input"]), 2 + 2 * len(FEW_SHOT_EXAMPLES))
-                self.assertNotIn("temperature", call)
-                self.assertNotIn("SYNTHETIC_KEY", json.dumps(call))
+                client, examples = fake_client(), source()
+                result = LLMUtils("SYNTHETIC_KEY", model, client=client, embedding_source=examples).extract_resume("SYNTHETIC_APPLICANT")
+                self.assertEqual(result, dict.fromkeys(SECTIONS, "SYNTHETIC_SECTION"))
+                examples.search.assert_called_once_with("SYNTHETIC_APPLICANT", k=100, search_type="similarity")
+                calls = client.chat.completions.create.call_args_list
+                self.assertEqual(len(calls), 5)
+                for index, call in enumerate(calls):
+                    args = call.kwargs
+                    self.assertEqual(args["model"], model)
+                    self.assertEqual(args["reasoning_effort"], "none")
+                    self.assertEqual(args["max_completion_tokens"], 128 if index == 0 else 8192)
+                    self.assertIs(args["store"], False)
+                    self.assertEqual([m["role"] for m in args["messages"]], ["system", "user"])
+                    for field in ("response_format", "temperature", "max_tokens"):
+                        self.assertNotIn(field, args)
+                    self.assertNotIn("SYNTHETIC_KEY", json.dumps(args))
 
-    def test_own_client_per_credential_without_global_key_or_secret_lookup(self):
-        first_client, second_client = Mock(), Mock()
-        with patch("llm_class.OpenAI", side_effect=[first_client, second_client]) as factory:
-            first = LLMUtils("SYNTHETIC_A", "gpt-6-luna")
-            second = LLMUtils("SYNTHETIC_B", "gpt-6.1-terra")
-            self.assertEqual(factory.call_args_list[0].kwargs["api_key"], "SYNTHETIC_A")
-            self.assertEqual(factory.call_args_list[1].kwargs["api_key"], "SYNTHETIC_B")
-            self.assertTrue(all(call.kwargs["max_retries"] == 0 for call in factory.call_args_list))
-            self.assertEqual(factory.call_count, 2)
-            self.assertIs(first.client, first_client)
-            self.assertIs(second.client, second_client)
-            self.assertIsNot(first.client, second.client)
+    def test_original_prompt_filters_then_selects_top_two_metadata_examples(self):
+        examples = source(example("EMPTY", summary=""), example("NULL", summary=None),
+            example("NONE", summary="None"), example("ONE"), example("TWO"), example("THREE"))
+        client = fake_client()
+        LLMUtils("SYNTHETIC", client=client, embedding_source=examples).extract_section("SYNTHETIC_APPLICANT", "summary")
+        messages = client.chat.completions.create.call_args.kwargs["messages"]
+        prompt = messages[0]["content"]
+        self.assertIn("\nExample 1:\n\n```resume\nSYNTHETIC_SOURCE_ONE\n```\n```summary\nSYNTHETIC_SUMMARY_ONE\n```\n", prompt)
+        self.assertIn("Example 2:", prompt)
+        self.assertIn("SYNTHETIC_SUMMARY_TWO", prompt)
+        self.assertNotIn("Example 3:", prompt)
+        for marker in ("SOURCE_EMPTY", "SOURCE_NULL", "SOURCE_NONE", "SOURCE_THREE"):
+            self.assertNotIn(marker, prompt)
+        self.assertIn("Never include items that are not in the applicant's resume", prompt)
+        self.assertIn("These are examples, never include them in the extracted section.", prompt)
+        self.assertIn("```resume\nSYNTHETIC_APPLICANT\n```", messages[1]["content"])
 
-    def test_separate_real_clients_send_separate_authorization_headers(self):
-        headers = {"first": [], "second": []}
+    def test_section_prompts_keep_historical_experience_and_skill_rules(self):
+        client = fake_client()
+        util = LLMUtils("SYNTHETIC", client=client, embedding_source=source())
+        util.extract_section("SYNTHETIC", "professional_experience")
+        prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn("PROFESSIONAL EXPERIENCE does NOT include education", prompt)
+        self.assertIn("153 characters long exactly", prompt)
+        util.extract_section("SYNTHETIC", "skills_and_tech")
+        self.assertIn("Skills and Tech only includes bullet points of skills and tech",
+                      client.chat.completions.create.call_args.kwargs["messages"][0]["content"])
 
-        def handler(label):
-            def handle(request):
-                headers[label].append(request.headers["Authorization"])
-                return synthetic_response(json.loads(request.content)["model"])
-            return handle
+    def test_retrieval_cache_preserves_metadata_and_changes_with_applicant(self):
+        client, examples = fake_client(), source()
+        util = LLMUtils("SYNTHETIC", client=client, embedding_source=examples)
+        util.extract_section("SYNTHETIC_FIRST", "summary")
+        util.extract_section("SYNTHETIC_FIRST", "education")
+        self.assertEqual(examples.search.call_count, 1)
+        prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn("SYNTHETIC_EDUCATION_ONE", prompt)
+        self.assertNotIn("SYNTHETIC_SUMMARY_ONE", prompt)
+        util.extract_section("SYNTHETIC_SECOND", "education")
+        self.assertEqual(examples.search.call_count, 2)
 
-        with contextlib.ExitStack() as stack:
-            transports = iter([
-                stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handler("first")))),
-                stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handler("second")))),
-            ])
+    def test_name_uses_selected_model_without_retrieval_or_examples(self):
+        client, examples = fake_client("Synthetic Name"), source()
+        util = LLMUtils("SYNTHETIC", "gpt-6.1-terra", client=client, embedding_source=examples)
+        self.assertEqual(util.extract_section("SYNTHETIC_APPLICANT", "name"), "Synthetic Name")
+        examples.search.assert_not_called()
+        args = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(args["model"], "gpt-6.1-terra")
+        self.assertEqual(args["max_completion_tokens"], 128)
+        self.assertNotIn("SYNTHETIC_SOURCE", json.dumps(args))
 
-            def sdk_factory(**kwargs):
-                return stack.enter_context(OpenAI(http_client=next(transports), **kwargs))
-
-            with patch("llm_class.OpenAI", side_effect=sdk_factory):
-                first = LLMUtils("SYNTHETIC_FIRST", "gpt-6-luna")
-                second = LLMUtils("SYNTHETIC_SECOND", "gpt-6.1-terra")
-                self.assertIsNot(first.client, second.client)
-                first.extract_resume("SYNTHETIC_FIRST_RESUME")
-                second.extract_resume("SYNTHETIC_SECOND_RESUME")
-                first.extract_resume("SYNTHETIC_FIRST_RESUME_AGAIN")
-
-        self.assertEqual(headers["first"], ["Bearer SYNTHETIC_FIRST"] * 2)
-        self.assertEqual(headers["second"], ["Bearer SYNTHETIC_SECOND"])
-
-    def test_environment_key_cannot_override_explicit_client_key(self):
-        headers = []
-
-        def handle(request):
-            headers.append(request.headers["Authorization"])
-            return synthetic_response()
-
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "SYNTHETIC_ENVIRONMENT_KEY"}, clear=True):
-            with httpx2.Client(transport=httpx2.MockTransport(handle)) as transport:
-                with contextlib.ExitStack() as clients:
-                    def sdk_factory(**kwargs):
-                        return clients.enter_context(OpenAI(http_client=transport, **kwargs))
-
-                    with patch("llm_class.OpenAI", side_effect=sdk_factory):
-                        LLMUtils("SYNTHETIC_ENTERED_KEY").extract_resume("SYNTHETIC_RESUME")
-
-        self.assertEqual(headers, ["Bearer SYNTHETIC_ENTERED_KEY"])
-
-    def test_missing_key_and_retired_model_fail_before_client_construction(self):
+    def test_missing_key_and_legacy_model_fail_before_client_or_retrieval(self):
+        examples = source()
         with patch("llm_class.OpenAI") as factory:
-            for key, model in [("", "gpt-6-luna"), ("SYNTHETIC", "ft:retired")]:
-                with self.assertRaises(ResumeProcessingError):
-                    LLMUtils(key, model)
+            cases = [("", "gpt-6-luna"), (None, "gpt-6-luna"), ("SYNTHETIC", "unsupported")]
+            cases.extend(("SYNTHETIC", m) for m in MODEL_OPTIONS.values() if m not in SUPPORTED_MODELS)
+            for key, model in cases:
+                with self.assertRaises(ResumeProcessingError) as caught:
+                    LLMUtils(key, model, embedding_source=examples)
+                self.assertEqual(caught.exception.category, "configuration")
             factory.assert_not_called()
+        examples.search.assert_not_called()
 
-    def test_empty_and_oversize_input_make_no_request(self):
-        client = self.client()
-        util = LLMUtils("SYNTHETIC", client=client)
+    def test_empty_oversize_and_invalid_section_make_no_request(self):
+        client, examples = fake_client(), source()
+        util = LLMUtils("SYNTHETIC", client=client, embedding_source=examples)
         for value in ("", " ", None, "x" * (MAX_RESUME_CHARACTERS + 1)):
             with self.assertRaises(ResumeProcessingError) as caught:
                 util.extract_resume(value)
             self.assertEqual(caught.exception.category, "input")
-        client.responses.create.assert_not_called()
+        with self.assertRaises(ResumeProcessingError):
+            util.extract_section("SYNTHETIC", "unsupported")
+        client.chat.completions.create.assert_not_called()
+        examples.search.assert_not_called()
 
-    def test_incomplete_output_is_not_accepted_even_when_json_is_valid(self):
-        for status in ("incomplete", "failed", "in_progress", None):
-            client = self.client(status=status)
+    def test_historical_index_load_is_lazy_and_path_is_not_user_controlled(self):
+        examples, client = source(), fake_client()
+        with patch("langchain.vectorstores.FAISS.load_local", return_value=examples) as loader:
+            util = LLMUtils("SYNTHETIC", client=client)
+            loader.assert_not_called()
+            util.extract_section("SYNTHETIC", "summary")
+            self.assertEqual(loader.call_args.args, (str(INDEX_PATH),))
+            self.assertIs(loader.call_args.kwargs["embeddings"].client, client)
+            util.extract_section("SYNTHETIC", "education")
+            loader.assert_called_once()
+
+    def test_index_load_errors_are_sanitized_without_chat_call(self):
+        client = fake_client()
+        with patch("langchain.vectorstores.FAISS.load_local", side_effect=RuntimeError("SENSITIVE_SENTINEL")):
             with self.assertRaises(ResumeProcessingError) as caught:
                 LLMUtils("SYNTHETIC", client=client).extract_resume("SYNTHETIC")
-            self.assertEqual(caught.exception.category, "incomplete")
+        self.assertEqual(caught.exception.category, "examples")
+        self.assertNotIn("SENSITIVE_SENTINEL", str(caught.exception))
+        client.chat.completions.create.assert_not_called()
 
-    def test_refusal_is_detected_even_with_valid_output_text(self):
-        client = self.client(output=[{"type": "message", "content": [
-            {"type": "refusal", "refusal": "SENSITIVE_SENTINEL"}
-        ]}])
-        with self.assertRaises(ResumeProcessingError) as caught:
-            LLMUtils("SYNTHETIC", client=client).extract_resume("SYNTHETIC")
-        self.assertEqual(caught.exception.category, "refusal")
+    def test_refusal_truncation_and_invalid_xml_text_never_export(self):
+        cases = [(fake_client(refusal="SENSITIVE_SENTINEL"), "refusal"),
+            (fake_client(finish_reason="length"), "incomplete"),
+            (fake_client(finish_reason="content_filter"), "incomplete"),
+            (fake_client(content=None), "invalid_output"),
+            (fake_client(content="\ud800"), "invalid_output"),
+            (fake_client(content="\ufffe"), "invalid_output"),
+            (fake_client(content="x" * (MAX_RESUME_CHARACTERS + 1)), "invalid_output")]
+        for client, category in cases:
+            with self.assertRaises(ResumeProcessingError) as caught:
+                LLMUtils("SYNTHETIC", client=client, embedding_source=source()).extract_resume("SYNTHETIC")
+            self.assertEqual(caught.exception.category, category)
+            self.assertNotIn("SENSITIVE_SENTINEL", str(caught.exception))
+            self.assertEqual(client.chat.completions.create.call_count, 1)
+
+    def test_blank_sections_and_valid_unicode_are_returned_as_text(self):
+        for content in ("", "Name Not Found", "Synthetic \U0001f680\nParagraph"):
+            result = LLMUtils("SYNTHETIC", client=fake_client(content), embedding_source=source()).extract_section("SYNTHETIC", "summary")
+            self.assertEqual(result, content)
+
+    def test_provider_and_retrieval_errors_are_sanitized(self):
+        for stage in ("chat", "retrieval"):
+            for status, code, category in [(401, "invalid_api_key", "authentication"),
+                (403, None, "model_access"), (404, "model_not_found", "model_access"),
+                (400, "model_deprecated", "model_access"), (429, "insufficient_quota", "quota"),
+                (429, "rate_limit_exceeded", "rate_limit"), (503, None, "provider")]:
+                with self.subTest(stage=stage, category=category):
+                    error = RuntimeError("KEY_SENTINEL RESUME_SENTINEL")
+                    error.status_code, error.body, error.request_id = status, {"error": {"code": code}}, "req_synthetic"
+                    client, examples = fake_client(), source()
+                    target = client.chat.completions.create if stage == "chat" else examples.search
+                    target.side_effect = error
+                    capture = io.StringIO()
+                    with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
+                        with self.assertRaises(ResumeProcessingError) as caught:
+                            LLMUtils("KEY_SENTINEL", client=client, embedding_source=examples).extract_resume("RESUME_SENTINEL")
+                    self.assertEqual(caught.exception.category, category)
+                    for marker in ("KEY_SENTINEL", "RESUME_SENTINEL"):
+                        self.assertNotIn(marker, str(caught.exception) + capture.getvalue())
+                    self.assertTrue(caught.exception.__suppress_context__)
+
+    def test_transport_errors_and_untrusted_request_reference_are_sanitized(self):
+        for name, category in [("APITimeoutError", "timeout"), ("APIConnectionError", "connection")]:
+            error = type(name, (Exception,), {})("SENSITIVE_SENTINEL")
+            error.request_id = "SENSITIVE_SENTINEL\nunsafe"
+            client = fake_client()
+            client.chat.completions.create.side_effect = error
+            with self.assertRaises(ResumeProcessingError) as caught:
+                LLMUtils("SYNTHETIC", client=client, embedding_source=source()).extract_section("SYNTHETIC", "name")
+            self.assertEqual(caught.exception.category, category)
+            self.assertNotIn("SENSITIVE_SENTINEL", str(caught.exception))
+
+    def test_real_sdk_serializes_original_chat_method_without_schema(self):
+        requests = []
+        def handle(request):
+            self.assertEqual(request.url.path, "/v1/chat/completions")
+            payload = json.loads(request.content)
+            requests.append(payload)
+            return synthetic_chat_response(payload["model"])
+        with httpx2.Client(transport=httpx2.MockTransport(handle)) as transport:
+            with OpenAI(api_key="SYNTHETIC", http_client=transport, max_retries=0) as sdk:
+                LLMUtils("SYNTHETIC", client=sdk, embedding_source=source()).extract_resume("SYNTHETIC")
+        self.assertEqual(len(requests), 5)
+        for payload in requests:
+            self.assertNotIn("response_format", payload)
+            self.assertEqual(payload["reasoning_effort"], "none")
+            self.assertIs(payload["store"], False)
+
+    def test_app_created_sdk_does_not_retry_provider_503(self):
+        attempts = []
+        def handle(request):
+            attempts.append(request.url.path)
+            return httpx2.Response(503, json={"error": {"code": "synthetic_failure", "message": "SENSITIVE_SENTINEL"}})
+        with patch.dict(os.environ, {}, clear=True), contextlib.ExitStack() as stack:
+            transport = stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handle)))
+            def factory(**kwargs):
+                return stack.enter_context(OpenAI(http_client=transport, **kwargs))
+            with patch("llm_class.OpenAI", side_effect=factory):
+                with self.assertRaises(ResumeProcessingError) as caught:
+                    LLMUtils("SYNTHETIC", embedding_source=source()).extract_section("SYNTHETIC", "name")
+        self.assertEqual(attempts, ["/v1/chat/completions"])
+        self.assertEqual(caught.exception.category, "provider")
         self.assertNotIn("SENSITIVE_SENTINEL", str(caught.exception))
 
-    def test_invalid_json_empty_output_and_wrong_schema_do_not_export(self):
-        for text in ("", "{", "null", "[]", '{"name":"SYNTHETIC"}'):
-            with self.subTest(text=text):
-                with self.assertRaises(ResumeProcessingError) as caught:
-                    LLMUtils("SYNTHETIC", client=self.client(text=text)).extract_resume("SYNTHETIC")
-                self.assertEqual(caught.exception.category, "invalid_output")
-
-    def test_error_categories_do_not_expose_provider_body_or_resume(self):
-        cases = [
-            (401, "invalid_api_key", "authentication"),
-            (403, None, "model_access"), (404, "model_not_found", "model_access"),
-            (400, "model_deprecated", "model_access"),
-            (429, "insufficient_quota", "quota"), (429, "rate_limit_exceeded", "rate_limit"),
-            (500, None, "provider"),
-        ]
-        for status, code, category in cases:
-            with self.subTest(category=category):
-                error = RuntimeError("KEY_SENTINEL RESUME_SENTINEL")
-                error.status_code = status
-                error.body = {"error": {"code": code, "message": "KEY_SENTINEL"}}
-                error.request_id = "req_synthetic"
-                client = self.client()
-                client.responses.create.side_effect = error
-                capture = io.StringIO()
-                with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
-                    with self.assertRaises(ResumeProcessingError) as caught:
-                        LLMUtils("KEY_SENTINEL", client=client).extract_resume("RESUME_SENTINEL")
-                self.assertEqual(caught.exception.category, category)
-                self.assertIn("req_synthetic", str(caught.exception))
-                self.assertNotIn("KEY_SENTINEL", str(caught.exception) + capture.getvalue())
-                self.assertNotIn("RESUME_SENTINEL", str(caught.exception) + capture.getvalue())
-                self.assertTrue(caught.exception.__suppress_context__)
-
-    def test_transport_errors_and_untrusted_request_id_are_sanitized(self):
-        for name, category in [("APITimeoutError", "timeout"), ("APIConnectionError", "connection")]:
-            error = type(name, (Exception,), {})("SENSITIVE")
-            error.request_id = "SENSITIVE\nunsafe"
-            client = self.client()
-            client.responses.create.side_effect = error
-            with self.assertRaises(ResumeProcessingError) as caught:
-                LLMUtils("SYNTHETIC", client=client).extract_resume("SYNTHETIC")
-            self.assertEqual(caught.exception.category, category)
-            self.assertNotIn("SENSITIVE", str(caught.exception))
-
-    def test_all_synthetic_prompt_examples_validate_and_convert(self):
-        for example in FEW_SHOT_EXAMPLES:
-            validate_resume(copy.deepcopy(example["result"]))
-            self.assertEqual(set(to_section_results(example["result"])), {
-                "name", "summary", "skills_and_tech", "professional_experience", "education"
-            })
+    def test_separate_clients_keep_entered_keys_and_official_endpoint(self):
+        observed = {"first": [], "second": []}
+        def handler(label):
+            def handle(request):
+                observed[label].append((request.headers["Authorization"], request.url.host))
+                return synthetic_chat_response(json.loads(request.content)["model"])
+            return handle
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "SYNTHETIC_ENV", "OPENAI_BASE_URL": "https://untrusted.invalid/v1"}, clear=True), contextlib.ExitStack() as stack:
+            transports = iter([stack.enter_context(httpx2.Client(transport=httpx2.MockTransport(handler(label)))) for label in ("first", "second")])
+            def factory(**kwargs):
+                self.assertEqual(kwargs["max_retries"], 0)
+                return stack.enter_context(OpenAI(http_client=next(transports), **kwargs))
+            with patch("llm_class.OpenAI", side_effect=factory):
+                first = LLMUtils("SYNTHETIC_FIRST", embedding_source=source())
+                second = LLMUtils("SYNTHETIC_SECOND", "gpt-6.1-terra", embedding_source=source())
+                first.extract_section("SYNTHETIC", "name")
+                second.extract_section("SYNTHETIC", "name")
+                first.extract_section("SYNTHETIC", "name")
+        self.assertEqual(observed["first"], [("Bearer SYNTHETIC_FIRST", "api.openai.com")] * 2)
+        self.assertEqual(observed["second"], [("Bearer SYNTHETIC_SECOND", "api.openai.com")])
 
 
 if __name__ == "__main__":

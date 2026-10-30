@@ -1,7 +1,7 @@
 import unittest
 raise unittest.SkipTest(
-    'Historical FAISS indexing requires a separate legacy environment and authorized training data; '
-    'it is not used by the current application.'
+    'Historical FAISS index rebuilding requires a separate legacy environment and authorized training data; '
+    'index rebuilding is not part of this current-model stopgap.'
 )
 import os
 import tempfile

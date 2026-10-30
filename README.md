@@ -1,15 +1,16 @@
 # AIM Resume Processor
 
-Convert a PDF, DOCX, UTF-8 text file, or pasted resume into the existing AIM Word format.
+Convert an uploaded or pasted resume into the existing AIM Word format.
 
-The app now offers **GPT-6 Luna** and **GPT-6.1 Terra** with synthetic few-shot examples
-and structured extraction. The retired GPT-3.5 fine-tunes are no longer used.
-These are replacement extraction modes; equivalent quality to the former fine-tune
-has not been established.
+The model picker adds **GPT-6 Luna** and **GPT-6.1 Terra** using the app's original
+retrieved-example few-shot method. It searches the existing `vectorstore2`, selects
+two relevant examples for each section, and uses the historical section prompts.
+Name extraction uses the selected current model too. Legacy picker entries explain
+that they are unavailable and direct you to the current choices.
 
 ## Run locally
 
-Use Python 3.12:
+Use Python 3.10 and the existing Streamlit 1.25 series:
 
 ```sh
 python -m venv .venv
@@ -18,46 +19,51 @@ python -m pip install -r requirements.txt
 python -m streamlit run main.py
 ```
 
-Select a model, enter your OpenAI project API key into the password field, and
-upload or paste a resume. Click **Process resume**, review the extracted facts,
-and download the DOCX.
+Select a model, enter your OpenAI project key, then upload a PDF/DOCX/TXT file or
+use **Paste Mode**. Select **Process resume**, review each extracted section, and
+use either **Download DOCX** button. Convert older binary `.doc` files to DOCX/PDF
+first. Scanned PDFs require text extraction outside this app.
 
-The entered key is used for this session's client. There is no hidden hosted-key
-override and no key stored in source or an environment file by this app.
-Your selected OpenAI project is billed when you process. Editing the input, key,
-or model clears the previous result. Downloads do not call the model again.
-For old binary `.doc` files, convert to DOCX/PDF first; scanned PDFs require
-text extraction/OCR outside this app.
+The key entered in this session is used for both example retrieval and extraction;
+that project's account is billed. There is no hosted-key override or saved key.
+Input/key/model changes clear the previous result. Rerenders and downloads do not
+repeat requests. Automatic API retries are disabled.
 
-## Format and data handling
+## Original few-shot method
 
-- Output: applicant name, summary, skills/technologies, professional experience,
-  and education, using the existing AIM templates and paragraph styles.
-- Missing facts remain blank. The app does not invent contract status or dates.
-- Structured JSON is validated and converted to document sections in Python.
-- DOCX output is generated in memory per session, not a shared `resume.docx`.
-- Raw resumes, prompts, API keys, and provider error bodies are not logged.
-- Responses are requested with `store=False`. This is not a claim of zero provider
-  retention; applicable API data policies still govern processing.
-- Input is capped at 100,000 characters and output at 8,192 tokens. Refused,
-  truncated, or invalid model output does not produce a partial document.
+- The unchanged historical FAISS index uses `text-embedding-ada-002` embeddings.
+  Query tokenization, chunk weighting and normalization follow LangChain 0.0.235.
+- A single example search replaces the old repeated identical searches. Each
+  section still filters its own nonempty targets and takes the top two examples.
+- Five Chat Completions calls extract the name, summary, skills, experience and
+  education as text. The original formatting prompts and AIM templates are retained.
+- Retrieved historical resumes and their formatted sections are sent to OpenAI
+  as examples, along with the submitted resume. A fictional submitted resume alone
+  does **not** make a request synthetic-only when using the historical index.
+- The prompts instruct conservative extraction; review facts and layout before
+  sharing. Equivalence to the retired fine-tuned model has not been established.
 
-## Offline tests
+DOCX files are built in session memory. Raw resumes, prompts, keys and provider
+error bodies are not logged. Chat requests set `store=False`; applicable provider
+retention policies still govern processing. Truncation, refusal and invalid text
+stop export. Input is bounded to 100,000 characters and each section to 8,192
+output tokens (name: 128).
+
+## Offline checks
 
 ```sh
 python -m unittest discover -s tests -v
 python -m pip check
 ```
 
-Tests use synthetic fixtures and mocked/in-memory transports. They verify code
-and document behavior, not real-model extraction quality. The historical FAISS
-indexing test is explicitly skipped: retrieval is not part of the current app
-and those scripts need their old dependencies and authorized data.
+Tests use fictional examples, temporary synthetic indexes and in-memory HTTP
+transports. They do not evaluate live model accuracy or inspect historical records.
+The historical index-building script test is skipped: rebuilding/training data is
+outside this app stopgap and its old SDK setup needs separate migration.
 
-See [MIGRATION.md](MIGRATION.md) for capability sources, required live quality
-checks, and current fine-tuning limitations. Do not run the historical training
-script casually: its main block can start a billed fine-tuning job.
+See [MIGRATION.md](MIGRATION.md) for the source comparison and release checks.
+Do not run the historical fine-tuning script casually: its main block starts a
+billed job. Neither Luna nor Terra currently supports fine-tuning.
 
 Built with [Streamlit](https://streamlit.io), [OpenAI](https://openai.com), and
 [Travis Barton Consulting](https://www.travisbarton.com).
-
