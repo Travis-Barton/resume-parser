@@ -200,11 +200,13 @@ Here are some rules:
 6. Never add commentary or intros. Only extract the section. (e.g. do not say "Here is the __ And __ section:" just return the section)
 7. Never add additional sections. For example, do not add Education to the Skills And Tech section. It does not belong there. Stop when your section is complete.
 8. Never include items that are not in the applicant's resume. Hallucinations are not allowed. (eg. Do not add work experience that is not in the resume)
+9. Preserve the applicant's original wording. Copy each bullet and sentence as written in the resume, changing only verb tense where the format requires it. Do not paraphrase, summarize, or compress.
+10. Never drop a qualifying clause, number, metric, platform or tool name, or attribution that appears in the original text. If a detail is in the resume and belongs to this section, it stays in the extracted section.
 
-REMEMBER: It is better to miss things than to be wrong. Always lean towards being conservative. The worst thing you can do is add experience that the candidate doesnt have.
+REMEMBER: Be conservative only about ADDING things. Never add experience that the candidate doesnt have, and never include items that are not in the resume. But do not omit or shorten content that IS in the resume: leaving out a real detail is just as wrong as inventing one.
 """
         human_prompt = f"""
-REMEMBER: It is better to miss things than to be wrong. Always lean towards being conservative. The worst thing you can do is add experience that the candidate doesnt have.
+REMEMBER: Do not add anything that is not in the resume, and do not leave out or shorten anything that is. Preserve the original wording, changing only verb tense where needed.
 Here is the resume candidates resume. Use ONLY it to generate the extracted section.
 ```resume
 {resume}
